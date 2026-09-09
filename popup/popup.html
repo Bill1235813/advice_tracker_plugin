@@ -1,0 +1,23 @@
+<!doctype html>
+<meta charset="utf-8">
+<style>
+  body { width: 300px; margin: 0; padding: 14px; font: 13px/1.45 system-ui, sans-serif; color: #1f2328; }
+  h1 { font-size: 14px; margin: 0 0 8px; }
+  .row { display: flex; justify-content: space-between; margin: 4px 0; } .row b { font-variant-numeric: tabular-nums; }
+  .warn { color: #b3403a; font-size: 12px; }
+  button { width: 100%; margin-top: 6px; padding: 6px; border-radius: 6px; border: 1px solid #d9d9d3; background: #f1f1ec; font: inherit; cursor: pointer; }
+  button.primary { background: #4f5bd5; color: #fff; border-color: #4f5bd5; }
+  pre { max-height: 160px; overflow: auto; background: #f3f4fb; padding: 6px; font-size: 11px; white-space: pre-wrap; }
+</style>
+<h1>Advice Tracker</h1>
+<div id="status"></div>
+<div class="row"><span>Advice conversations captured</span><b id="n-advice">0</b></div>
+<div class="row"><span>Waiting for your rating</span><b id="n-pending">0</b></div>
+<div class="row"><span>Follow-ups due</span><b id="n-due">0</b></div>
+<div class="row"><span>Non-advice conversations discarded</span><b id="n-discarded">0</b></div>
+<button class="primary" id="open-checkin">Open check-ins</button>
+<button id="pause">Pause tracking</button>
+<button id="debug">Show captured messages on this tab</button>
+<button id="options">Settings</button>
+<pre id="debug-out" hidden></pre>
+<script src="popup.js"></script>

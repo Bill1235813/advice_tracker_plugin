@@ -1,0 +1,52 @@
+{
+  "manifest_version": 3,
+  "name": "Advice Tracker (research study)",
+  "version": "0.1.0",
+  "description": "Study extension: notices when you ask an AI assistant for advice about your own situation, asks for a quick rating, and checks back two weeks later. Everything stays on your computer until you choose to share it.",
+  "permissions": [
+    "storage",
+    "alarms",
+    "notifications",
+    "tabs"
+  ],
+  "host_permissions": [
+    "https://chatgpt.com/*",
+    "https://claude.ai/*",
+    "https://gemini.google.com/*",
+    "https://grok.com/*",
+    "https://www.perplexity.ai/*",
+    "http://localhost/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://chatgpt.com/*",
+        "https://claude.ai/*",
+        "https://gemini.google.com/*",
+        "https://grok.com/*",
+        "https://www.perplexity.ai/*",
+        "http://localhost/*"
+      ],
+      "js": [
+        "lib/sites.js",
+        "lib/redact.js",
+        "content/rating_panel.js",
+        "content/capture.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_title": "Advice Tracker"
+  },
+  "options_page": "options/options.html",
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}

@@ -1,0 +1,44 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Advice Tracker settings</title>
+<style>
+  body { max-width: 640px; margin: 0 auto; padding: 24px; font: 14px/1.5 system-ui, sans-serif; color: #1f2328; }
+  label { display: block; margin: 12px 0 4px; font-weight: 600; } .help { color: #647084; font-size: 12.5px; font-weight: normal; }
+  input[type=text], input[type=number], textarea { width: 100%; box-sizing: border-box; padding: 6px; border: 1px solid #d9d9d3; border-radius: 6px; font: inherit; }
+  .inline label { display: inline-block; font-weight: normal; margin-right: 14px; }
+  button { padding: 8px 18px; border-radius: 8px; border: 1px solid #4f5bd5; background: #4f5bd5; color: #fff; font: inherit; cursor: pointer; margin-top: 16px; margin-right: 8px; }
+  button.danger { background: #b3403a; border-color: #b3403a; } button.secondary { background: #f1f1ec; color: #1f2328; border-color: #d9d9d3; }
+  #saved { color: #1e7f4f; margin-left: 8px; }
+</style>
+<h1>Advice Tracker settings</h1>
+<label>Participant ID <span class="help">(your Prolific ID or the code from the onboarding email)</span></label>
+<input type="text" id="participantId">
+<details><summary>Advanced (pre-filled by the research team; do not change unless asked)</summary>
+<label>Study server URL</label>
+<input type="text" id="serverUrl">
+<label>Study key</label>
+<input type="text" id="studyKey">
+</details>
+<label>Days until the follow-up check-in</label>
+<input type="number" id="followupDays" min="1" max="60">
+<label>Minutes of quiet before a conversation is checked</label>
+<input type="number" id="idleMinutes" min="0.5" max="30" step="0.5">
+<label>Ask me about advice in these areas</label>
+<div class="inline" id="domains">
+  <label><input type="checkbox" value="relationships"> relationships</label>
+  <label><input type="checkbox" value="health"> health</label>
+  <label><input type="checkbox" value="career"> career</label>
+  <label><input type="checkbox" value="other"> other personal decisions</label>
+</div>
+<label>Never capture on these sites <span class="help">(one hostname per line, e.g. claude.ai)</span></label>
+<textarea id="excludedHosts" rows="3"></textarea>
+<label>Names to remove from shared conversations <span class="help">(one per line: your name, family, employer)</span></label>
+<textarea id="redactNames" rows="3"></textarea>
+<label><input type="checkbox" id="localOnly"> Local-only mode: never send anything to the server (data waits on this computer)</label>
+<label><input type="checkbox" id="paused"> Pause tracking</label>
+<div>
+  <button id="save">Save</button><span id="saved"></span>
+  <button class="secondary" id="export">Export my data (JSON)</button>
+  <button class="danger" id="delete">Delete all data on this computer</button>
+</div>
+<script src="options.js"></script>
