@@ -6,8 +6,7 @@
   "permissions": [
     "storage",
     "alarms",
-    "notifications",
-    "tabs"
+    "notifications"
   ],
   "host_permissions": [
     "https://chatgpt.com/*",
@@ -48,5 +47,6 @@
     "16": "icons/icon16.png",
     "48": "icons/icon48.png",
     "128": "icons/icon128.png"
-  }
+  },
+  "minimum_chrome_version": "116"
 }
