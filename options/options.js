@@ -8,6 +8,8 @@ async function load() {
   document.getElementById("localOnly").checked = !!settings.localOnly;
   document.getElementById("paused").checked = !!settings.paused;
   for (const box of document.querySelectorAll("#domains input")) box.checked = (settings.trackedDomains || []).includes(box.value);
+  const share = document.querySelector(`#share-default input[value="${settings.shareDefault || "ask"}"]`);
+  if (share) share.checked = true;
 }
 
 document.getElementById("save").onclick = async () => {
@@ -23,6 +25,7 @@ document.getElementById("save").onclick = async () => {
     excludedHosts: lines("excludedHosts"), redactNames: lines("redactNames"),
     localOnly: document.getElementById("localOnly").checked, paused: document.getElementById("paused").checked,
     trackedDomains: Array.from(document.querySelectorAll("#domains input:checked")).map((box) => box.value),
+    shareDefault: document.querySelector("#share-default input:checked")?.value || "ask",
   };
   await chrome.storage.local.set({ settings: next });
   document.getElementById("saved").textContent = "saved";

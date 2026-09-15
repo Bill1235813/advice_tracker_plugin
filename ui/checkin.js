@@ -3,9 +3,13 @@
 // line up: followed? what did you do? did it make you feel better? AI's role, outcome,
 // other sources, then the six response items again.
 const EXTENT = ["Not at all", "Slightly", "Moderately", "Very", "Extremely"];
-const ITEMS = [["helpful", "How helpful were the responses?"], ["accurate", "How accurate was the information?"],
-  ["relevant", "How relevant were they to your situation?"], ["trust", "To what extent do you trust the advice?"],
-  ["clear", "How easy were they to understand and follow?"], ["harmful", "How harmful were the responses?"]];
+const ITEMS = [
+  ["helpful", "Helpful: did the responses move you forward on what to do?"],
+  ["accurate", "Accurate: as far as you can tell, were the facts and claims correct?"],
+  ["relevant", "Specific: did they address your particular situation, rather than give generic advice?"],
+  ["trust", "Trust: how much do you trust the advice you were given?"],
+  ["clear", "Clear: how easy were the responses to understand and follow?"],
+  ["harmful", "Harmful: could following the responses have hurt you or someone else?"]];
 
 function scale(name, labels = EXTENT) {
   return `<div class="scale">${labels.map((label, i) => `<label><input type="radio" name="${name}" value="${i + 1}">${i + 1}<br>${label}</label>`).join("")}</div>`;
@@ -15,7 +19,8 @@ function value(card, name) { const el = card.querySelector(`input[name="${name}"
 
 async function main() {
   const params = new URLSearchParams(location.search);
-  const { conversations = {} } = await chrome.storage.local.get("conversations");
+  const { conversations = {}, settings = {} } = await chrome.storage.local.get(["conversations", "settings"]);
+  window.shareDefault = settings.shareDefault || "ask";
   const list = document.getElementById("list");
   let shown = 0;
   const now = Date.now();
@@ -48,6 +53,7 @@ function ratingCard(conversation) {
     <div class="item"><span class="q">Share with the research team:</span>
       <select name="share"><option value="full">ratings and the (redacted) conversation</option><option value="ratings">ratings only</option><option value="none">nothing</option></select></div>
     <button class="submit">Submit</button> <button class="secondary not-advice">Not an advice request</button>`;
+  if (window.shareDefault !== "ask") card.querySelector('[name="share"]').value = window.shareDefault;
   card.querySelector(".submit").onclick = async () => {
     const rating = {};
     for (const [k] of ITEMS) rating[k] = value(card, k);

@@ -9,6 +9,7 @@ importScripts("config.js", "lib/redact.js", "lib/similarity.js");
 const DEFAULT_SETTINGS = {
   participantId: "", serverUrl: STUDY_CONFIG.serverUrl, studyKey: STUDY_CONFIG.studyKey, paused: false, localOnly: false,
   followupDays: 14, idleMinutes: 1, trackedDomains: ["relationships", "health", "career"],
+  shareDefault: "ask",     // "full" | "ratings" | "ask": chosen once in the settings page
   excludedHosts: [], redactNames: [], relatedThreshold: 0.5,
 };
 
@@ -41,17 +42,24 @@ async function onSnapshot(message, sender) {
   if (settings.paused || settings.excludedHosts.includes(host)) return;
   const conversations = await getConversations();
   const firstUserMessage = message.messages.find((m) => m.role === "user")?.content;
+  let initialMessageCount = message.messages.length;
   for (const other of Object.values(conversations)) {
     // NOTE: [edge case callout] chat URLs change after the first message (chatgpt.com/ ->
     // chatgpt.com/c/<id>), so the same chat can arrive under two keys; the earlier generic
     // entry with the same opening message is superseded by this one
     if (other.key !== message.key && other.site === message.site && ["captured", "classified"].includes(other.status)
         && other.messages?.find((m) => m.role === "user")?.content === firstUserMessage) {
+      initialMessageCount = Math.min(initialMessageCount, other.initialMessageCount ?? initialMessageCount);
       delete conversations[other.key];
       chrome.alarms.clear(`classify|${other.key}`);
     }
   }
-  const existing = conversations[message.key] || { key: message.key, site: message.site, firstSeen: message.capturedAt, status: "captured" };
+  // NOTE: [design thought] a conversation counts only if it grows while the extension is
+  // watching: opening an old chat from the sidebar shows its messages, but nothing new is
+  // asked, so it is never classified. Continuing an old chat does count (and the whole thread
+  // is then the conversation).
+  const existing = conversations[message.key] || { key: message.key, site: message.site, firstSeen: message.capturedAt,
+                                                   status: "captured", initialMessageCount };
   if (existing.status === "done") return;
   existing.url = message.url;
   existing.tabId = sender.tab?.id;
@@ -84,6 +92,7 @@ async function classifyOnce(key) {
   const conversation = (await getConversations())[key];
   if (!conversation || !conversation.userText) return;
   const messageCount = conversation.messages.length;
+  if (messageCount <= (conversation.initialMessageCount ?? 0)) return;   // a past conversation that was only opened
   if (conversation.classification && conversation.classification.messageCount === messageCount) return;
   const userTurns = conversation.messages.filter((m) => m.role === "user").map((m) => m.content);
   let result;
@@ -232,6 +241,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         break;
       }
       case "classify_now": await classify(message.key); break;
+      case "open_rating_tab": openCheckin(`?rate=${encodeURIComponent(message.key)}`); break;
       case "flush": await flushQueue(); break;
     }
     sendResponse({ ok: true });

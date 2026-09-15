@@ -28,7 +28,9 @@ Web Store version (one-click install) is in review; until then, follow the steps
 3. **Turn on Developer mode** with the switch in the top-right corner.
 4. Click **Load unpacked** (top left) and select the unzipped folder, the one that contains
    `manifest.json`. The card **Advice Tracker (research study)** appears.
-5. The **settings page opens by itself.** Type your Participant ID and click **Save**.
+5. The **settings page opens by itself.** Type your Participant ID, choose **what to share**
+   after each advice conversation (ratings and the redacted conversation / ratings only / ask
+   me every time; you can still change it for any single conversation), and click **Save**.
    The server address and study key are already filled in under "Advanced"; leave them.
    *(If the page did not open: click the puzzle-piece icon → Advice Tracker → ⋮ → Options.)*
 6. **Pin the icon**: puzzle-piece icon (top right of Chrome) → pin next to Advice Tracker.
@@ -60,6 +62,13 @@ now, click the icon → **Open check-ins**.
 
 - Only on the five chat sites above; it reads nothing else (no browsing history, no
   passwords, no other websites).
+- **Past conversations are not collected.** Opening an old chat from the sidebar shows its
+  messages to the extension, but nothing is classified or sent unless the conversation grows
+  while the extension is watching. If you continue an old chat, the whole thread counts as
+  the conversation.
+- **It reads both your messages and the assistant's replies** on the page, but only your
+  own messages are sent to decide whether the conversation is an advice request. The
+  assistant's replies leave your computer only inside a conversation you chose to share.
 - To decide whether a conversation is an advice request, **your own messages** are sent to
   the study server. The assistant's replies leave your computer only if you choose to share
   the conversation. Conversations that are not advice requests are deleted immediately.
@@ -74,6 +83,8 @@ study e-mail.
 
 ## If something does not work
 
+- **Cannot type in the panel's text boxes** (seen on claude.ai): click **open in a tab** in
+  the panel's header; the same questions open in a separate tab where typing always works.
 - **No panel appears** after an advice conversation: click the icon → *Show captured messages
   on this tab*. If the list is empty, the chat site changed its page layout; tell the study
   team which site (the fix is a one-line update). If messages are listed, wait a minute (the

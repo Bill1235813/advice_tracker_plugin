@@ -6,6 +6,7 @@
   label { display: block; margin: 12px 0 4px; font-weight: 600; } .help { color: #647084; font-size: 12.5px; font-weight: normal; }
   input[type=text], input[type=number], textarea { width: 100%; box-sizing: border-box; padding: 6px; border: 1px solid #d9d9d3; border-radius: 6px; font: inherit; }
   .inline label { display: inline-block; font-weight: normal; margin-right: 14px; }
+  #share-default label { display: block; margin: 4px 0; }
   button { padding: 8px 18px; border-radius: 8px; border: 1px solid #4f5bd5; background: #4f5bd5; color: #fff; font: inherit; cursor: pointer; margin-top: 16px; margin-right: 8px; }
   button.danger { background: #b3403a; border-color: #b3403a; } button.secondary { background: #f1f1ec; color: #1f2328; border-color: #d9d9d3; }
   #saved { color: #1e7f4f; margin-left: 8px; }
@@ -13,6 +14,12 @@
 <h1>Advice Tracker settings</h1>
 <label>Participant ID <span class="help">(your Prolific ID or the code from the onboarding email)</span></label>
 <input type="text" id="participantId">
+<label>What to share with the research team after each advice conversation</label>
+<div class="inline" id="share-default">
+  <label><input type="radio" name="shareDefault" value="full"> my ratings and the conversation <span class="help">(names, e-mails, phone numbers, addresses removed automatically; you can still review or change it for any conversation)</span></label>
+  <label><input type="radio" name="shareDefault" value="ratings"> my ratings only</label>
+  <label><input type="radio" name="shareDefault" value="ask"> ask me every time</label>
+</div>
 <details><summary>Advanced (pre-filled by the research team; do not change unless asked)</summary>
 <label>Study server URL</label>
 <input type="text" id="serverUrl">
