@@ -55,8 +55,12 @@ for an extension loaded this way.
 5. A factual question ("What is the capital of Peru?") should **not** trigger the panel;
    the *discarded* counter goes up by one instead, and the text is deleted.
 
+**Where things go when you click "later"**: the panel comes back after an hour if the chat tab is
+still open, otherwise a Chrome notification reminds you. At any time, click the extension icon →
+**Open pending ratings & check-ins** to answer everything that is waiting.
+
 The two-week follow-up normally arrives as a Chrome notification. To see those questions
-now, click the icon → **Open check-ins**.
+now, use the same button.
 
 ## What it collects, and your controls
 

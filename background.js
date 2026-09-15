@@ -228,7 +228,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       case "snapshot": await onSnapshot(message, sender); break;
       case "rating_submitted": await onRatingSubmitted(message); break;
       case "followup_submitted": await onFollowupSubmitted(message); break;
-      case "rating_snoozed": chrome.alarms.create(`remind|${message.key}`, { delayInMinutes: 60 }); break;
+      case "rating_snoozed": chrome.alarms.create(`remind|${message.key}`, { delayInMinutes: 60 }); break;   // remind -> promptRating: panel if the tab is open, else a notification
       case "rating_dismissed": {
         const conversation = (await getConversations())[message.key];
         if (conversation) { conversation.status = "dismissed"; delete conversation.messages; await saveConversation(conversation); }

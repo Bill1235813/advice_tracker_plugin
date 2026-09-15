@@ -25,13 +25,14 @@ async function main() {
   let shown = 0;
   const now = Date.now();
   for (const conversation of Object.values(conversations)) {
-    const wantsRating = params.get("rate") === conversation.key || (!params.has("followup") && conversation.status === "classified");
+    // pending ratings are always listed (a snoozed or dismissed-by-accident panel is found here)
+    const wantsRating = conversation.status === "classified";
     const followupDue = conversation.status === "rated" && conversation.followup && !conversation.followup.doneAt &&
       (params.get("followup") === conversation.key || conversation.followup.dueAt <= now || params.get("followup") === "all");
     if (wantsRating) { list.appendChild(ratingCard(conversation)); shown += 1; }
     else if (followupDue) { list.appendChild(followupCard(conversation)); shown += 1; }
   }
-  if (!shown) list.innerHTML = '<p class="empty">Nothing is waiting for you right now. Follow-ups appear here when they are due.</p>';
+  if (!shown) list.innerHTML = '<p class="empty">Nothing is waiting for you right now. Snoozed ratings and due follow-ups appear here.</p>';
 }
 
 function header(conversation) {

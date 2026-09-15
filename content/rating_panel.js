@@ -71,7 +71,7 @@
       <div class="panel">
         <div class="head"><b>Quick check-in (research study)</b>
           <button id="tab" class="tab" title="If typing here does not work, answer in a separate tab">open in a tab</button>
-          <button id="min">minimize</button><button id="later">later</button><button id="close">✕</button></div>
+          <button id="min">minimize</button><button id="later" title="Reminds you in an hour; also listed under the extension icon">later (1 h)</button><button id="close">✕</button></div>
         <div class="body">
           <div class="why">This looked like a request for advice about <b>${DOMAIN_LABEL[conversation.domain] || conversation.domain}</b>.
             Two minutes of questions now, and a short follow-up in ${settings.followupDays} days. Your answers are only stored on this computer until you choose to share.</div>
