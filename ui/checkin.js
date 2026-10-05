@@ -1,119 +1,96 @@
-// Extension page for the two-week follow-up (and for ratings that could not be shown on the
-// chat page). Questions mirror Session 2 of the user study so plug-in and survey outcomes
-// line up: followed? what did you do? did it make you feel better? AI's role, outcome,
-// other sources, then the six response items again.
-const EXTENT = ["Not at all", "Slightly", "Moderately", "Very", "Extremely"];
-const ITEMS = [
-  ["helpful", "Helpful: did the responses move you forward on what to do?"],
-  ["accurate", "Accurate: as far as you can tell, were the facts and claims correct?"],
-  ["relevant", "Specific: did they address your particular situation, rather than give generic advice?"],
-  ["trust", "Trust: how much do you trust the advice you were given?"],
-  ["clear", "Clear: how easy were the responses to understand and follow?"],
-  ["harmful", "Harmful: could following the responses have hurt you or someone else?"]];
-
-function scale(name, labels = EXTENT) {
-  return `<div class="scale">${labels.map((label, i) => `<label><input type="radio" name="${name}" value="${i + 1}">${i + 1}<br>${label}</label>`).join("")}</div>`;
-}
-function esc(text) { return (text || "").replace(/&/g, "&amp;").replace(/</g, "&lt;"); }
-function value(card, name) { const el = card.querySelector(`input[name="${name}"]:checked`); return el ? Number(el.value) : null; }
+// Extension page with everything that waits for the participant: episodes not rated yet (a
+// snoozed panel, a notification, "open in a tab") and day-14 check-ins that are due. The
+// questions come from lib/questions.js, the same lists the rating panel uses.
+//   ?rate=<id>      opened from a notification or the panel's "open in a tab"
+//   ?checkin=<id>   opened from the day-14 notification; ?checkin=all lists every open check-in
+const SHARE_OPTIONS = [["full", "your answers and the conversation (names, e-mails, numbers removed)"],
+                       ["ratings", "your answers only"], ["none", "nothing for this conversation"]];
 
 async function main() {
   const params = new URLSearchParams(location.search);
-  const { conversations = {}, settings = {} } = await chrome.storage.local.get(["conversations", "settings"]);
-  window.shareDefault = settings.shareDefault || "ask";
+  const stored = await chrome.storage.local.get(null);
+  const settings = stored.settings || {};
+  const episodes = Object.entries(stored).filter(([name]) => name.startsWith("episode:")).map(([, episode]) => episode)
+    .sort((a, b) => a.closedAt - b.closedAt);
   const list = document.getElementById("list");
-  let shown = 0;
   const now = Date.now();
-  for (const conversation of Object.values(conversations)) {
-    // pending ratings are always listed (a snoozed or dismissed-by-accident panel is found here)
-    const wantsRating = conversation.status === "classified";
-    const followupDue = conversation.status === "rated" && conversation.followup && !conversation.followup.doneAt &&
-      (params.get("followup") === conversation.key || conversation.followup.dueAt <= now || params.get("followup") === "all");
-    if (wantsRating) { list.appendChild(ratingCard(conversation)); shown += 1; }
-    else if (followupDue) { list.appendChild(followupCard(conversation)); shown += 1; }
+  for (const episode of episodes) {
+    const checkinDue = episode.status === "rated" && (episode.checkin.dueAt <= now || ["all", episode.id].includes(params.get("checkin")));
+    if (episode.status === "pending") list.appendChild(ratingCard(episode, settings));
+    else if (checkinDue) list.appendChild(checkinCard(episode, episodes));
   }
-  if (!shown) list.innerHTML = '<p class="empty">Nothing is waiting for you right now. Snoozed ratings and due follow-ups appear here.</p>';
+  if (!list.children.length) list.innerHTML = '<p class="empty">Nothing is waiting for you right now. Episodes to rate and due check-ins appear here.</p>';
+  const focus = params.get("rate") || params.get("checkin");
+  document.getElementById(`card-${focus}`)?.scrollIntoView();
 }
 
-function header(conversation) {
-  const first = (conversation.messages || []).find((m) => m.role === "user");
-  const recall = first ? first.content : (conversation.rating?.decision || "(conversation text no longer stored)");
-  return `<h2>${esc(conversation.site)} · ${esc(conversation.domain)}</h2>
-    <div class="meta">${new Date(conversation.firstSeen).toLocaleString()}</div>
-    <div class="quote">${esc(recall.slice(0, 1200))}</div>`;
+function quote(text) {
+  return `<div class="quote">${Questions.escape(text.length > 1200 ? text.slice(0, 1200) + " …" : text)}</div>`;
 }
 
-function ratingCard(conversation) {
-  const card = document.createElement("div");
+// NOTE: [edge case callout] each card is its own <form>: radio buttons that share a name form one
+// group per form, so two cards asking "helpful" at once do not clear each other's answer
+function newCard(episode) {
+  const card = document.createElement("form");
   card.className = "card";
-  card.innerHTML = `${header(conversation)}
-    <p>This looked like a request for advice. Please rate the conversation.</p>
-    ${ITEMS.map(([k, q]) => `<div class="item"><span class="q">${q}</span>${scale(k)}</div>`).join("")}
-    <div class="item"><span class="q">In one sentence, what decision or situation were you asking about?</span><input type="text" name="decision"></div>
-    <div class="item"><span class="q">How likely are you to act on the advice in the next two weeks?</span>${scale("intent", ["Very unlikely", "Unlikely", "Not sure", "Likely", "Very likely"])}</div>
-    <div class="item"><span class="q">Share with the research team:</span>
-      <select name="share"><option value="full">ratings and the (redacted) conversation</option><option value="ratings">ratings only</option><option value="none">nothing</option></select></div>
-    <button class="submit">Submit</button> <button class="secondary not-advice">Not an advice request</button>`;
-  if (window.shareDefault !== "ask") card.querySelector('[name="share"]').value = window.shareDefault;
-  card.querySelector(".submit").onclick = async () => {
-    const rating = {};
-    for (const [k] of ITEMS) rating[k] = value(card, k);
-    if (Object.values(rating).some((v) => v === null)) { alert("Please answer all six rating questions."); return; }
-    rating.intent = value(card, "intent");
-    rating.decision = card.querySelector('[name="decision"]').value.trim();
-    rating.share = card.querySelector('[name="share"]').value;
-    rating.ratedAt = Date.now();
-    const transcript = rating.share === "full" && conversation.messages
-      ? Redact.redactMessages(conversation.messages, []).messages.map((m) => `${m.role.toUpperCase()}: ${m.content}`).join("\n\n") : null;
-    await chrome.runtime.sendMessage({ type: "rating_submitted", key: conversation.key, rating, transcript });
-    card.innerHTML = `<p class="done">Thank you. We will check back in about two weeks.</p>`;
+  card.id = `card-${episode.id}`;
+  card.onsubmit = (event) => event.preventDefault();
+  return card;
+}
+
+function ratingCard(episode, settings) {
+  const card = newCard(episode);
+  const redacted = Redact.redactMessages(episode.messages, settings.redactNames || []);
+  const transcript = redacted.messages.map((m) => `${m.role.toUpperCase()}: ${m.content}`).join("\n\n");
+  const preselected = settings.shareDefault === "ask" ? "" : settings.shareDefault || "";
+  card.innerHTML = `<h2>${Questions.escape(episode.site)} · ${new Date(episode.closedAt).toLocaleString()}</h2>
+    <p class="meta">It looked like you asked the AI for advice here:</p>${quote(episode.openingText)}
+    <div class="confirm"><b>Did you ask for advice here?</b><br>
+      <button type="button" class="yes">Yes</button> <button type="button" class="secondary no">No</button></div>
+    <div class="form" hidden>
+      ${Questions.render(Questions.RATINGS)}
+      <p class="optional">Optional</p>
+      ${Questions.render(Questions.OPTIONAL)}
+      <div class="item"><span class="q">Share with the research team: <span class="req">*</span></span>
+        ${SHARE_OPTIONS.map(([value, label]) => `<label class="choice"><input type="radio" name="share" value="${value}"
+          ${value === preselected ? "checked" : ""}> ${label}</label>`).join("")}
+        <details><summary>Review or edit the conversation before sharing</summary>
+          <textarea class="transcript">${Questions.escape(transcript)}</textarea></details></div>
+      <button type="button" class="submit">Submit</button></div>`;
+  card.querySelector(".yes").onclick = () => { card.querySelector(".confirm").hidden = true; card.querySelector(".form").hidden = false; };
+  card.querySelector(".no").onclick = async () => {
+    await chrome.runtime.sendMessage({ type: "not_advice", id: episode.id });
+    card.innerHTML = '<p class="done">Thank you. This conversation was removed from the study.</p>';
   };
-  card.querySelector(".not-advice").onclick = async () => {
-    await chrome.runtime.sendMessage({ type: "not_advice", key: conversation.key });
-    card.remove();
+  card.querySelector(".submit").onclick = async () => {
+    const ratings = Questions.read(card, Questions.RATINGS);
+    const share = card.querySelector('input[name="share"]:checked')?.value;
+    if (ratings.missing.length || !share) { alert("Please answer the questions marked *."); return; }
+    const rating = { ...ratings.answers, ...Questions.read(card, Questions.OPTIONAL).answers, share, ratedAt: Date.now() };
+    await chrome.runtime.sendMessage({ type: "rating_submitted", id: episode.id, rating,
+                                       transcript: share === "full" ? card.querySelector(".transcript").value : null });
+    card.innerHTML = `<p class="done">Thank you.${share === "none" ? "" : " We will check back in about two weeks."}</p>`;
   };
   return card;
 }
 
-function followupCard(conversation) {
-  const card = document.createElement("div");
-  card.className = "card";
-  const related = (conversation.related || []).length ? `<p class="meta">You later had ${conversation.related.length} more conversation(s) that looked related to this one.</p>` : "";
-  card.innerHTML = `${header(conversation)}${related}
-    <p>About ${Math.round((Date.now() - conversation.rating.ratedAt) / 86400000)} days ago you asked for advice here. What happened since?</p>
-    <div class="item"><span class="q">Did you follow the advice?</span>
-      <select name="followed"><option value="">choose…</option><option value="fully">Yes, fully</option><option value="partly">Yes, partly</option>
-        <option value="plan">Not yet, but I plan to</option><option value="against">No, I decided against it</option>
-        <option value="changed">No, the situation changed or resolved itself</option><option value="forgot">No, I forgot about it</option></select></div>
-    <div class="item"><span class="q">What did you actually do, or decide? (1-3 sentences)</span><textarea name="did"></textarea></div>
-    <div class="item"><span class="q">Did the advice you followed make you feel better?</span>${scale("feel_better", ["Strongly disagree", "Disagree", "Neither", "Agree", "Strongly agree"])}</div>
-    <div class="item"><span class="q">What role did the AI conversation play in what you decided?</span>
-      <select name="ai_role"><option value="">choose…</option><option value="deciding">The deciding factor</option><option value="one_input">One input among several</option>
-        <option value="small">A small influence</option><option value="none">No influence</option><option value="undecided">I have not decided yet</option></select></div>
-    <div class="item"><span class="q">So far, how has the situation turned out?</span>${scale("outcome", ["Much worse", "Somewhat worse", "About the same", "Somewhat better", "Much better"])}
-      <label><input type="checkbox" name="too_early"> too early to tell</label></div>
-    <div class="item checks"><span class="q">Since then, have you consulted anyone or anything else about it?</span>
-      ${["Friends or family", "A professional", "Web search or online communities", "The same AI assistant again", "A different AI assistant", "No one"]
-        .map((label) => `<label><input type="checkbox" name="sources" value="${label}"> ${label}</label>`).join("")}</div>
-    <p><b>Thinking back now, with what you know today:</b></p>
-    ${ITEMS.map(([k, q]) => `<div class="item"><span class="q">${q}</span>${scale("re_" + k)}</div>`).join("")}
-    <div class="item"><span class="q">Has your opinion of the advice changed?</span>
-      <select name="opinion"><option value="">choose…</option><option value="worse">It looks worse now</option><option value="same">About the same</option><option value="better">It looks better now</option></select></div>
-    <div class="item"><span class="q">Anything unexpected, or anything else you want to tell us? (optional)</span><textarea name="comment"></textarea></div>
-    <button class="submit">Submit follow-up</button>`;
+function checkinCard(episode, episodes) {
+  const card = newCard(episode);
+  const later = episodes.filter((other) => (other.related || []).includes(episode.id)).length;
+  const days = Math.round((Date.now() - episode.rating.ratedAt) / 86400000);
+  // the participant's own description of the decision, if they gave one; else what they asked
+  const recall = episode.rating.decision ? `<p class="meta">In your words, you were asking about:</p>${quote(episode.rating.decision)}`
+                                         : `<p class="meta">You asked:</p>${quote(episode.openingText || "")}`;
+  card.innerHTML = `<h2>${Questions.escape(episode.site)} · ${new Date(episode.closedAt).toLocaleDateString()}</h2>
+    <p>About ${days} days ago you asked an AI assistant for advice. What happened since?</p>${recall}
+    ${later ? `<p class="meta">Since then you had ${later} more conversation(s) that looked related to this one.</p>` : ""}
+    ${Questions.render(Questions.CHECKIN)}
+    <button type="button" class="submit">Submit check-in</button>`;
   card.querySelector(".submit").onclick = async () => {
-    const answers = {
-      followed: card.querySelector('[name="followed"]').value, did: card.querySelector('[name="did"]').value.trim(),
-      feel_better: value(card, "feel_better"), ai_role: card.querySelector('[name="ai_role"]').value,
-      outcome: value(card, "outcome"), too_early: card.querySelector('[name="too_early"]').checked,
-      sources: Array.from(card.querySelectorAll('[name="sources"]:checked')).map((el) => el.value),
-      rerating: Object.fromEntries(ITEMS.map(([k]) => [k, value(card, "re_" + k)])),
-      opinion: card.querySelector('[name="opinion"]').value, comment: card.querySelector('[name="comment"]').value.trim(),
-      answeredAt: Date.now(),
-    };
-    if (!answers.followed || !answers.did) { alert("Please say whether you followed the advice and what you did."); return; }
-    await chrome.runtime.sendMessage({ type: "followup_submitted", key: conversation.key, answers });
-    card.innerHTML = `<p class="done">Thank you - that completes this conversation.</p>`;
+    const { answers, missing } = Questions.read(card, Questions.CHECKIN);
+    if (missing.length) { alert("Please say whether you followed the advice and what you did."); return; }
+    await chrome.runtime.sendMessage({ type: "checkin_submitted", id: episode.id, answers: { ...answers, answeredAt: Date.now() } });
+    card.innerHTML = '<p class="done">Thank you, that completes this conversation.</p>';
   };
   return card;
 }

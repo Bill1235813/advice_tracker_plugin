@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Advice Tracker (research study)",
-  "version": "0.2.1",
-  "description": "Study extension: notices when you ask an AI assistant for advice about your own situation, asks for a quick rating, and checks back two weeks later. Everything stays on your computer until you choose to share it.",
+  "version": "0.3.0",
+  "description": "Study extension: notices when you ask an AI assistant for advice about your own situation, asks a few questions when that conversation ends, and checks back two weeks later.",
   "permissions": [
     "storage",
     "alarms",
@@ -31,7 +31,9 @@
       ],
       "js": [
         "lib/sites.js",
+        "lib/episodes.js",
         "lib/redact.js",
+        "lib/questions.js",
         "content/rating_panel.js",
         "content/capture.js"
       ],
