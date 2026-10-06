@@ -11,9 +11,7 @@ whether to share the conversation text, only your answers, or nothing.
 This folder is the extension itself, so it can be loaded straight into Chrome. A Chrome Web Store
 version (one-click install) is in preparation; until then, follow the steps below.
 
-**How it works, in detail:** [`docs/advice-tracker-design.pdf`](docs/advice-tracker-design.pdf),
-a 22-page design document written for readers with a computer-science background (no AI
-background needed).
+**How it works, in detail:** [`docs/advice-tracker-design.pdf`](docs/advice-tracker-design.pdf).
 
 ## What's new in version 0.3
 
