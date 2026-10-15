@@ -12,7 +12,7 @@ async function refresh() {
   if (settings.participantId) {
     status.innerHTML = "<div>Participant <b></b></div>";
     status.querySelector("b").textContent = settings.participantId;
-    status.firstChild.insertAdjacentHTML("beforeend", ` · ${{ frequent: "Frequent", periodical: "Periodical" }[settings.ratingMode] || "Switching"} mode`);
+    status.firstChild.insertAdjacentHTML("beforeend", ` · ${{ frequent: "Frequent", periodical: "Periodical", combined: "Combined" }[settings.ratingMode] || "Switching"} mode`);
     if (settings.paused) status.firstChild.insertAdjacentHTML("beforeend", ' · <span class="warn">paused</span>');
   } else {
     status.innerHTML = '<div class="warn">No participant ID set: open Settings.</div>';

@@ -6,8 +6,8 @@
 // this page: a turn that appears shortly after Enter or a Send button was pressed. Only those
 // turns are ever judged, so opening a past chat never sends its history anywhere.
 // Two small signals serve the rating modes (lib/modes.js): "view" when the page starts showing a
-// conversation (switching mode: moving to another conversation), and "activity" while the
-// participant types (periodical mode: pauses). Neither carries any text.
+// conversation (switching and combined modes: moving to another conversation), and "activity"
+// while the participant types (periodical and combined modes: pauses). Neither carries any text.
 (function () {
   const config = SITE_CONFIGS[location.hostname];
   if (!config) return;
@@ -199,7 +199,7 @@
   window.addEventListener("focus", () => { followConversation(); reportView(); });
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-    if (["show_panel", "offer_update", "refresh_panel"].includes(message.type)) {
+    if (["show_panel", "offer_update", "offer_confirm", "refresh_panel"].includes(message.type)) {
       // NOTE: [design thought] a conversation from another chat site is never put into this
       // page: the page's own scripts could read it (the background sends offer_tab instead)
       if (message.episode.site !== config.name) { sendResponse({ shown: false, refreshed: false }); return; }
@@ -207,8 +207,9 @@
         sendResponse({ refreshed: RatingPanel.refresh(message.episode, message.settings) });
         return;
       }
+      const offer = message.type === "offer_confirm" ? RatingPanel.offerConfirm : RatingPanel.offerUpdate;
       const result = message.type === "show_panel" ? RatingPanel.show(message.episode, message.settings)
-                                                   : (RatingPanel.offerUpdate(message.episode, message.settings) ? "shown" : "busy");
+                                                   : (offer(message.episode, message.settings) ? "shown" : "busy");
       sendResponse({ shown: result === "shown" || result === "refreshed", refreshed: result === "refreshed",
                      queued: result === "queued", busy: result === "busy" });
     } else if (message.type === "offer_tab") {

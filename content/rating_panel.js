@@ -5,7 +5,9 @@
 // earlier answers filled in when they are being updated. The conversation itself is not shown here:
 // the participant reviews it at the day-14 check-in, before it is stored. A second, smaller
 // pop-up offers that update ("Update your ratings?") and disappears by itself; a third one, with
-// no conversation text, asks about an episode from another chat site and answers in a tab.
+// no conversation text, asks about an episode from another chat site and answers in a tab; a
+// fourth one (combined mode) asks only step 1, quoting the request, right after the first advice
+// turn, and also disappears by itself (after Yes, the ratings page later starts at step 2).
 // An open page stays current: the background sends it the episode's newer state (more turns, the
 // complete reply, or a new request when the episode ended), and everything typed into it stays.
 // All are rendered inside shadow roots, so the host page's CSS cannot restyle them and vice versa.
@@ -74,6 +76,11 @@
     chrome.runtime.sendMessage(message).catch(() => {});
   }
 
+  // the request as it is quoted
+  function shortened(text) {
+    return text.length > QUOTE_CHARS ? text.slice(0, QUOTE_CHARS) + " …" : text;
+  }
+
   // The episode as the background sees it now (the conversation may have grown since the request
   // was made), or null if it is gone (removed meanwhile); the request's own copy if the
   // background cannot be reached.
@@ -134,7 +141,7 @@
     host.dataset.end = episode.end;
     const shadow = styled(host);
     let current = episode;               // the request this page answers; host.update puts in a newer one
-    const opening = episode.openingText.length > QUOTE_CHARS ? episode.openingText.slice(0, QUOTE_CHARS) + " …" : episode.openingText;
+    const opening = shortened(episode.openingText);
     const previous = episode.previous;
     const answered = Boolean(episode.answered);
     const questions = [...Questions.RATINGS, ...Questions.DETAILS];
@@ -219,16 +226,17 @@
   }
 
   // A small pop-up with Yes / No that goes away by itself after settings.updateSeconds of the page
-  // being visible. `onYes` runs on Yes; the background hears when it was first seen (offer_seen,
-  // counted as `asked`) and the answer (yes, no, timeout, or superseded when a ratings page takes
-  // its place). Returns false when something is already open.
-  function popup(episode, settings, question, asked, onYes) {
+  // being visible; `html` is its text, already escaped. `onYes` runs on Yes; the background hears
+  // when it was first seen (offer_seen, counted as `asked`) and the answer (message `reply`: yes,
+  // no, timeout, or superseded when a ratings page takes its place). Returns false when something
+  // is already open.
+  function popup(episode, settings, html, asked, reply, onYes) {
     if (document.getElementById("advice-tracker-host") || document.getElementById("advice-tracker-offer")) return false;
     const host = document.createElement("div");
     host.id = "advice-tracker-offer";
     const shadow = styled(host);
     shadow.innerHTML = `
-      <div class="offer"><b>Advice Tracker</b> (research study)<br>${Questions.escape(question)}
+      <div class="offer"><b>Advice Tracker</b> (research study)<br>${html}
         <div class="actions"><button id="no">No</button><button class="primary" id="yes">Yes</button></div>
         <div class="left" id="left"></div></div>`;
     document.body.appendChild(host);
@@ -252,7 +260,7 @@
     const finish = (answer) => {
       clearInterval(timer);
       host.remove();
-      send({ type: "update_answer", id: episode.id, answer });
+      send({ type: reply, id: episode.id, answer });
       if (answer === "yes") onYes();
     };
     byId("yes").onclick = () => finish("yes");
@@ -268,7 +276,7 @@
   function offerUpdate(episode, settings) {
     const question = episode.answered ? "Your advice conversation continued. Update your ratings?"
                                       : "Rate this advice conversation now? (about 5 to 10 minutes)";
-    return popup(episode, settings, question, "offer_update", async () => {
+    return popup(episode, settings, Questions.escape(question), "offer_update", "update_answer", async () => {
       const fresh = await latest(episode);
       if (fresh) show(fresh, settings);
     });
@@ -279,8 +287,17 @@
   function offerTab(episode, settings) {
     const question = `About your advice conversation on ${episode.site}: ${episode.answered ? "update your ratings" : "rate it now"}? ` +
                      "It opens in a separate tab.";
-    return popup(episode, settings, question, "offer_tab", () => send({ type: "open_rating_tab", id: episode.id, stage: episode.stage }));
+    return popup(episode, settings, Questions.escape(question), "offer_tab", "update_answer",
+                 () => send({ type: "open_rating_tab", id: episode.id, stage: episode.stage }));
   }
 
-  root.RatingPanel = { show, refresh, close, offerUpdate, offerTab };
+  // Combined mode, right after the first advice turn: "Did you ask for advice here?" alone; the
+  // background keeps the answer (No removes the episode, as on the page).
+  function offerConfirm(episode, settings) {
+    const html = `It looked like you asked the AI for advice here:<div class="quote">${Questions.escape(shortened(episode.openingText))}</div>` +
+                 "<b>Did you ask for advice here?</b> If yes, a few questions about the advice follow later.";
+    return popup(episode, settings, html, "offer_confirm", "confirm_answer", () => {});
+  }
+
+  root.RatingPanel = { show, refresh, close, offerUpdate, offerTab, offerConfirm };
 })(self);

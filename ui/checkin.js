@@ -59,15 +59,16 @@ function newCard(episode, kind) {
 function ratingCard(episode, settings, stored, asked) {
   const card = newCard(episode, "rate");
   const questions = [...Questions.RATINGS, ...Questions.DETAILS];
-  const confirmed = episode.versions > 0;
+  const answered = episode.versions > 0;
+  const confirmed = answered || Boolean(episode.confirmedAt);       // combined mode: Yes in the confirm pop-up
   // the question the chat page asked, else the one that waits (the background corrects a stage
   // that no longer fits, e.g. an episode that ended meanwhile)
-  const stage = STAGES.includes(asked) ? asked : Modes.pageDue(episode)?.stage || (confirmed ? "update" : "first");
+  const stage = STAGES.includes(asked) ? asked : Modes.pageDue(episode)?.stage || (answered ? "update" : "first");
   card.innerHTML = `<h2>${Questions.escape(episode.site)} · ${new Date(episode.closedAt || episode.openedAt).toLocaleString()}</h2>
     <p class="meta">It looked like you asked the AI for advice here:</p>${quote(episode.openingText)}
     <div class="confirm" ${confirmed ? "hidden" : ""}><b>Did you ask for advice here?</b><br>
       <button type="button" class="yes">Yes</button> <button type="button" class="secondary no">No</button></div>
-    ${confirmed ? '<p class="meta">Your earlier answers are filled in; change any that are different now.</p>' : ""}
+    ${answered ? '<p class="meta">Your earlier answers are filled in; change any that are different now.</p>' : ""}
     <div class="form" ${confirmed ? "" : "hidden"}>
       ${Questions.render(questions)}
       <button type="button" class="submit">Submit</button></div>`;

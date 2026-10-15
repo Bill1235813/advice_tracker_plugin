@@ -6,6 +6,6 @@ const STUDY_CONFIG = {
   studyKey: "lEHEDGTSxNbcgtB6mmcBV2kMoLFLwKSX",
 };
 // ratingMode: when to ask about an advice episode by default ("frequent" | "switching" |
-// "periodical", see lib/modes.js); the settings page can change it per computer.
+// "periodical" | "combined", see lib/modes.js); the settings page can change it per computer.
 STUDY_CONFIG.ratingMode = "switching";
 self.STUDY_CONFIG = STUDY_CONFIG;

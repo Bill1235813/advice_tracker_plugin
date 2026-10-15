@@ -4,7 +4,8 @@
 //   order (lib/episodes.js: the advice judge while searching, the continuation judge inside an
 //   episode) -> an episode ends at a topic switch, or after endQuietMinutes without activity
 //   -> the participant is asked for ratings as the episode's rating mode says (lib/modes.js:
-//   frequent, switching or periodical) -> check-in followupDays after the episode's first request.
+//   frequent, switching, periodical or combined) -> check-in followupDays after the episode's first
+//   request.
 // Every text leaves the computer only after local redaction (lib/redact.js).
 // Storage (chrome.storage.local):
 //   settings        participant id, server, rating mode, preferences (options page)
@@ -12,8 +13,8 @@
 //                   is open, and deleted as soon as the chat is settled
 //   chat:<chat>     the chat's episode state: turn numbers and hashes, no text
 //   alias:<key>     a second key of a chat (a new chat's URL gains its id after the first turn)
-//   act:<chat>      when the participant last typed in the chat (periodical mode's pauses)
-//   lastView        the conversation the participant looked at last (switching mode)
+//   act:<chat>      when the participant last typed in the chat (pauses: periodical, combined modes)
+//   lastView        the conversation the participant looked at last (moves: switching, combined)
 //   episode:<id>    an episode from its first advice turn on: its mode, the answers given so far,
 //                   and its text until the day-14 check-in, where the participant reviews it and
 //                   it is uploaded (answers are uploaded at once, the conversation only then)
@@ -23,11 +24,11 @@ importScripts("config.js", "lib/episodes.js", "lib/modes.js", "lib/redact.js", "
 
 const DEFAULT_SETTINGS = {
   participantId: "", serverUrl: STUDY_CONFIG.serverUrl, studyKey: STUDY_CONFIG.studyKey, paused: false, localOnly: false,
-  ratingMode: STUDY_CONFIG.ratingMode || "switching",     // "frequent" | "switching" | "periodical"
+  ratingMode: STUDY_CONFIG.ratingMode || "switching",     // "frequent" | "switching" | "periodical" | "combined"
   followupDays: 14,
   endQuietMinutes: 24 * 60,    // an episode also ends after this long without activity in its chat
-  pauseMinutes: 3,             // periodical mode: a pause is this long without typing in the episode's chat
-  updateSeconds: 30,           // the update pop-up disappears after this long
+  pauseMinutes: 3,             // periodical, combined: a pause is this long without typing in the episode's chat
+  updateSeconds: 30,           // the update and confirm pop-ups disappear after this long
   excludedHosts: [], redactNames: [], relatedThreshold: 0.5,
 };
 const POLL_WAIT_S = 20;      // one long-poll for a label (Chrome stops a worker that waits > 30 s for a response)
@@ -152,7 +153,8 @@ async function onSettled(key) {
 }
 
 // The page now shows a conversation (opened, started, or its tab or window came to the front).
-// For switching mode, looking at any other conversation than an open episode's chat is a switch.
+// For switching and combined modes, looking at any other conversation than an open episode's chat
+// is a move to another conversation.
 async function onView(message, sender) {
   const settings = await getSettings();
   if (settings.paused || excluded(settings, message.url)) return;
@@ -163,13 +165,14 @@ async function onView(message, sender) {
   }
 }
 
-// The participant typed in a chat: for an open periodical episode, the start of a new pause.
+// The participant typed in a chat: for an open periodical or combined episode, the start of a new
+// pause.
 async function onActivity(message) {
   const settings = await getSettings();
   if (settings.paused || excluded(settings, message.url)) return;
   const chat = await load(`chat:${await chatKey(message)}`);
   const record = chat?.episodeId && (await load(`episode:${chat.episodeId}`));
-  if (record?.status !== "open" || record.mode !== "periodical") return;     // nothing else needs it
+  if (record?.status !== "open" || !Modes.asksAtPauses(record.mode)) return;     // nothing else needs it
   await save(`act:${record.chatKey}`, Date.now());
   await armPause(record);
 }
@@ -430,26 +433,30 @@ async function episodeOpened(chat, job, page, settings) {
   if (await load(`episode:${chat.episodeId}`)) return;           // opened before a restart: nothing new to ask
   const record = await saveNewRecord(chat.episodeId, chat, page, settings);
   if (!record) return;
+  if (Modes.asksAtPauses(record.mode)) await armPause(record);
+  // NOTE: [design thought] combined mode: after a move, the ratings page comes instead of the
+  // confirm pop-up, and asks the confirm question itself
+  if (await askIfAlreadyElsewhere(record, job)) return;
   await askWhenSettled(record, "onOpened");
-  if (record.mode === "periodical") await armPause(record);
-  await askIfAlreadyElsewhere(record, job);
 }
 
 async function episodeExtended(chat, job) {
   const record = await updateEpisode(chat.episodeId, (current) => (current.status === "open" ? { ...current, end: chat.end } : current));
   if (record?.status !== "open") return;
   await refreshPanels(record);                    // a ratings page of the episode that is open shows the new turn
+  if (Modes.asksAtPauses(record.mode)) await armPause(record);      // a pause may have passed meanwhile
+  if (await askIfAlreadyElsewhere(record, job)) return;
   await askWhenSettled(record, "onExtended");
-  if (record.mode === "periodical") await armPause(record);      // a pause may have passed meanwhile
-  await askIfAlreadyElsewhere(record, job);
 }
 
-// Switching mode: the participant may have moved to another conversation while this turn was
-// being judged; that move counts as soon as the label is in.
+// Switching and combined modes: the participant may have moved to another conversation while
+// this turn was being judged; that move counts as soon as the label is in. Returns whether they
+// were asked something.
 async function askIfAlreadyElsewhere(record, job) {
-  if (record.mode !== "switching") return;
+  if (!Modes.asksAtMoves(record.mode)) return false;
   const view = await load("lastView");
-  if (view && view.key !== record.chatKey && view.at > job.sentAt) await ask(record.id, "onOtherConversation", view);
+  if (view && view.key !== record.chatKey && view.at > job.sentAt) return ask(record.id, "onOtherConversation", view);
+  return false;
 }
 
 // A closed episode keeps its answers, and its text until its check-in is done.
@@ -501,7 +508,8 @@ async function panelEpisode(record, stage) {
   }
   return {
     id: record.id, site: record.site, openingText: record.openingText, stage, mode: record.mode, start: record.start, end: record.end,
-    basedOn: record.versions, messages, previous: record.answers, answered: record.versions > 0, confirmed: record.versions > 0,
+    basedOn: record.versions, messages, previous: record.answers, answered: record.versions > 0,
+    confirmed: record.versions > 0 || Boolean(record.confirmedAt),        // combined mode: Yes in the confirm pop-up
   };
 }
 
@@ -551,7 +559,7 @@ async function ask(id, rule, view = null) {
   // if they are looking at another tab
   const refreshed = await refreshPanels(record, page ? decision.stage : null);
   if (refreshed.length && (!page || tabId === null || refreshed.includes(tabId))) return true;
-  const type = site !== record.site ? "offer_tab" : page ? "show_panel" : "offer_update";
+  const type = site !== record.site ? "offer_tab" : { page: "show_panel", update: "offer_update", confirm: "offer_confirm" }[decision.show];
   let episode = await panelEpisode(record, decision.stage);
   // NOTE: [design thought] a page of another chat site gets no text of the conversation at all
   if (type === "offer_tab") episode = { id: episode.id, site: episode.site, stage: episode.stage, end: episode.end, answered: episode.answered };
@@ -640,9 +648,12 @@ async function onPanelShown(message, sender) {
   await updateBadge();
 }
 
-// An update pop-up was visible for the first time.
+// A pop-up was visible for the first time. The confirm pop-up asks nothing about the advice, so
+// it leaves askedEnd alone: the first ratings page still comes (lib/modes.js).
 async function onOfferSeen(message) {
-  await updateEpisode(message.id, (current) => ({ ...current, askedEnd: Math.max(current.askedEnd ?? 0, message.end) }));
+  await updateEpisode(message.id, (current) => (message.asked === "offer_confirm"
+    ? { ...current, confirmAskedAt: current.confirmAskedAt ?? Date.now() }
+    : { ...current, askedEnd: Math.max(current.askedEnd ?? 0, message.end) }));
   await count(`asked_${message.asked}`);
   await updateBadge();
 }
@@ -736,6 +747,9 @@ async function removeEpisode(id) {
   let gone = null;
   await updateEpisode(id, (record) => {
     if (record.status === "removed") return record;          // removed before: its chat deletes it
+    // NOTE: [edge case callout] answers say it was advice: a "No" from a question left open in
+    // another tab (a confirm pop-up in a background tab) after they were given changes nothing
+    if (record.answers) return record;
     gone = record;
     return record.status === "open" ? { ...withoutText(record), status: "removed", openingText: "", answers: null } : null;
   });
@@ -795,6 +809,21 @@ async function onUpdateAnswer(message) {
     await upload("prompt", { episode: record.id, mode: record.mode, prompt: "update", answer: message.answer,
                              turns: record.end - record.start + 1 }, await getSettings());
   }
+}
+
+// The confirm pop-up's outcome (combined mode): yes, no, no answer in time, or superseded (a
+// ratings page took its place, and asks the question itself). Yes spares the later ratings page
+// the question; No is "not advice", as on that page, whose copies in other tabs close too.
+async function onConfirmAnswer(message, tabId) {
+  const record = await load(`episode:${message.id}`);
+  await count(`confirm_${message.answer}`);
+  if (record) {
+    await upload("prompt", { episode: record.id, mode: record.mode, prompt: "confirm", answer: message.answer,
+                             turns: record.end - record.start + 1 }, await getSettings());
+  }
+  if (message.answer === "yes") await updateEpisode(message.id, (current) => ({ ...current, confirmedAt: current.confirmedAt ?? Date.now() }));
+  if (message.answer === "no" && record && !record.answers) await panelFinished(message.id, tabId).then(() => onNotAdvice(message));
+  else await offerRefused(tabId);
 }
 
 // The extension icon shows how many questions wait: ratings pages (lib/modes.js `waiting`) and
@@ -925,6 +954,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       break;
     case "checkin_submitted": onCheckinSubmitted(message); break;
     case "update_answer": onUpdateAnswer(message).then(() => offerRefused(tabId)); break;
+    case "confirm_answer": onConfirmAnswer(message, tabId); break;
     case "flush": flushQueue(); break;
   }
 });
@@ -961,7 +991,7 @@ chrome.notifications.onClicked.addListener((id) => {
 async function resumeAll() {
   const soon = Date.now() + 60000;
   for (const [, record] of await loadAll("episode:")) {
-    if (record.status === "open" && record.mode === "periodical") await armPause(record);
+    if (record.status === "open" && Modes.asksAtPauses(record.mode)) await armPause(record);
     if (record.checkin && !record.checkin.doneAt && !record.checkin.notifiedAt) {
       chrome.alarms.create(`checkin|${record.id}`, { when: Math.max(record.checkin.dueAt, soon) });
     }

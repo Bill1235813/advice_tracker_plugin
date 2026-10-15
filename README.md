@@ -14,7 +14,18 @@ version (one-click install) is in preparation; until then, follow the steps belo
 
 **How it works, in detail:** [`docs/advice-tracker-design.pdf`](docs/advice-tracker-design.pdf).
 
-## What's new in version 0.4.1 (dev branch)
+## What's new in version 0.4.2 (dev branch)
+
+- **A fourth way of asking, *Combined***, chosen in the settings like the other three:
+  - Right after the assistant's first answer to an advice message, a small pop-up asks only
+    **"Did you ask for advice here?"** (No removes the conversation, as on the panel). It closes
+    by itself after 30 seconds; if you do not answer it, the panel asks it again later.
+  - The questions panel comes at whichever happens first: a 3-minute pause, a move to another
+    conversation, or a change of topic. After Yes in the pop-up, it starts with the ratings.
+  - Later pauses and moves offer an update in the small pop-up (only if the conversation went on
+    since); a change of topic asks for your final answers, as in *Switching*.
+
+## What's new in version 0.4.1
 
 - **Every question must be answered** before you can submit (two check-in questions only when
   they apply).
@@ -94,9 +105,13 @@ extension loaded this way.
 2. With the default *Switching* mode, then either start a new chat (the panel asks for a first
    set of answers) or change the subject in the same chat (*"Unrelated: what is the capital of
    Peru?"*; the panel asks for your final answers). With *Frequent*, the panel appears right after
-   the assistant's first answer; with *Periodical*, after 3 minutes without typing.
+   the assistant's first answer; with *Periodical*, after 3 minutes without typing. With
+   *Combined*, a small pop-up asks only "Did you ask for advice here?" right after the assistant's
+   first answer, and the panel comes after 3 minutes without typing, a new chat, or a change of
+   subject, whichever is first.
 3. A small **Quick check-in** panel appears at the bottom right of the chat page. The panel
-   quotes your request and asks **"Did you ask for advice here?"**.
+   quotes your request and asks **"Did you ask for advice here?"** (in *Combined* mode only if you
+   did not answer Yes in the pop-up).
 4. Click **Yes**, answer all the questions (each one is required), and press **Submit**. Only your
    answers are sent; the conversation waits on your computer for the two-week check-in.
 5. Click the extension icon: *Advice conversations found* shows 1. A chat with only a factual
@@ -145,11 +160,11 @@ e-mail.
 - **Cannot type in the panel's text boxes** (seen on claude.ai): click **open in a tab** in the
   panel's header; the same questions open in a separate tab where typing always works.
 - **No panel appears** after an advice conversation: the panel comes when the rating mode says so
-  (see "What's new in version 0.4"; the popup under the extension icon shows the mode), and you
-  need to be online. Then click the icon → *Show captured messages on this tab*: it lists the
-  messages the extension sees and how many of your messages it saw you send. If the list is
-  empty, the chat site changed its page layout; if it says 0 messages were sent although you
-  typed some, tell the study team which site (both are quick fixes).
+  (see "What's new in version 0.4" and, for *Combined*, 0.4.2; the popup under the extension icon
+  shows the mode), and you need to be online. Then click the icon → *Show captured messages on
+  this tab*: it lists the messages the extension sees and how many of your messages it saw you
+  send. If the list is empty, the chat site changed its page layout; if it says 0 messages were
+  sent although you typed some, tell the study team which site (both are quick fixes).
 - **"No participant ID set"** in the popup: open the settings page and save your ID.
 - **Chrome removed the extension** after an update: repeat "Load unpacked" from the same folder.
 - **Anything else**: e-mail the study team with what you did and what you saw; the
@@ -167,16 +182,16 @@ e-mail.
 
 ## For reviewers and developers
 
-- `manifest.json` (Manifest V3, version 0.4.1): permissions `storage`, `alarms`, `notifications`,
+- `manifest.json` (Manifest V3, version 0.4.2): permissions `storage`, `alarms`, `notifications`,
   and host permissions for the five chat sites (plus `localhost` for the mock test page); no
   remote code.
 - `content/capture.js` reads the conversation from the page and notes which user messages were
   sent there; `background.js` judges each new message through the study server, one at a time,
   following the state machine in `lib/episodes.js`, and shows `content/rating_panel.js` (or its small
-  update pop-up) when the rating mode in `lib/modes.js` says so; `lib/redact.js` removes personal
-  details from everything sent; `ui/checkin.html` holds pending questions and the two-week check-in;
-  `lib/questions.js` has every question (all required); `config.js` holds the server URL and study
-  key.
+  update and confirm pop-ups) when the rating mode in `lib/modes.js` says so; `lib/redact.js` removes
+  personal details from everything sent; `ui/checkin.html` holds pending questions and the two-week
+  check-in; `lib/questions.js` has every question (all required); `config.js` holds the server URL
+  and study key.
 - The design document is in `docs/`. The study server, the GPU worker, the tests (unit tests, a
   headless-browser end-to-end test, a smoke test) and the Web Store package live in the
   `plugin/` folder of the main research project.
