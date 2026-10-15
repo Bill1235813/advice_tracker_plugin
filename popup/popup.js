@@ -4,13 +4,15 @@ async function refresh() {
   const episodes = Object.entries(stored).filter(([name]) => name.startsWith("episode:")).map(([, episode]) => episode);
   const now = Date.now();
   document.getElementById("n-found").textContent = stats.episodes || 0;
-  document.getElementById("n-pending").textContent = episodes.filter((e) => e.status === "pending").length;
-  document.getElementById("n-due").textContent = episodes.filter((e) => e.status === "rated" && e.checkin.dueAt <= now).length;
+  // the same questions the badge on the icon counts (lib/modes.js)
+  document.getElementById("n-pending").textContent = episodes.filter(Modes.waiting).length;
+  document.getElementById("n-due").textContent = episodes.filter((e) => Modes.checkinDue(e, now)).length;
   document.getElementById("n-removed").textContent = (stats.not_advice || 0) + (stats.dismissed || 0);
   const status = document.getElementById("status");
   if (settings.participantId) {
     status.innerHTML = "<div>Participant <b></b></div>";
     status.querySelector("b").textContent = settings.participantId;
+    status.firstChild.insertAdjacentHTML("beforeend", ` · ${{ frequent: "Frequent", periodical: "Periodical" }[settings.ratingMode] || "Switching"} mode`);
     if (settings.paused) status.firstChild.insertAdjacentHTML("beforeend", ' · <span class="warn">paused</span>');
   } else {
     status.innerHTML = '<div class="warn">No participant ID set: open Settings.</div>';
@@ -18,7 +20,7 @@ async function refresh() {
   document.getElementById("pause").textContent = settings.paused ? "Resume tracking" : "Pause tracking";
 }
 
-document.getElementById("open-checkin").onclick = () => chrome.tabs.create({ url: chrome.runtime.getURL("ui/checkin.html?checkin=all") });
+document.getElementById("open-checkin").onclick = () => chrome.tabs.create({ url: chrome.runtime.getURL("ui/checkin.html") });
 document.getElementById("options").onclick = () => chrome.runtime.openOptionsPage();
 document.getElementById("pause").onclick = async () => {
   const { settings = {} } = await chrome.storage.local.get("settings");

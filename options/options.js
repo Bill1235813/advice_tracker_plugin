@@ -1,5 +1,5 @@
 const FIELDS = ["participantId", "serverUrl", "studyKey", "followupDays", "endQuietMinutes"];
-const DEFAULTS = { followupDays: 14, endQuietMinutes: 10 };
+const DEFAULTS = { followupDays: 14, endQuietMinutes: 24 * 60, ratingMode: STUDY_CONFIG.ratingMode || "switching" };
 
 async function load() {
   const { settings = {} } = await chrome.storage.local.get("settings");
@@ -8,8 +8,8 @@ async function load() {
   document.getElementById("redactNames").value = (settings.redactNames || []).join("\n");
   document.getElementById("localOnly").checked = !!settings.localOnly;
   document.getElementById("paused").checked = !!settings.paused;
-  const share = document.querySelector(`#share-default input[value="${settings.shareDefault || "ask"}"]`);
-  if (share) share.checked = true;
+  const mode = document.querySelector(`#rating-mode input[value="${settings.ratingMode || DEFAULTS.ratingMode}"]`);
+  if (mode) mode.checked = true;
 }
 
 document.getElementById("save").onclick = async () => {
@@ -24,7 +24,7 @@ document.getElementById("save").onclick = async () => {
     endQuietMinutes: Number(document.getElementById("endQuietMinutes").value) || DEFAULTS.endQuietMinutes,
     excludedHosts: lines("excludedHosts"), redactNames: lines("redactNames"),
     localOnly: document.getElementById("localOnly").checked, paused: document.getElementById("paused").checked,
-    shareDefault: document.querySelector("#share-default input:checked")?.value || "ask",
+    ratingMode: document.querySelector("#rating-mode input:checked")?.value || DEFAULTS.ratingMode,
   };
   await chrome.storage.local.set({ settings: next });
   document.getElementById("saved").textContent = "saved";
@@ -42,12 +42,9 @@ document.getElementById("export").onclick = async () => {
 
 document.getElementById("delete").onclick = async () => {
   if (!confirm("Delete every conversation, answer and queued upload stored by the extension on this computer?")) return;
-  const { settings } = await chrome.storage.local.get("settings");
-  await chrome.storage.local.clear();
-  await chrome.storage.local.set({ settings });
-  await chrome.alarms.clearAll();
-  await chrome.alarms.create("heartbeat", { periodInMinutes: 12 * 60 });
-  await chrome.action.setBadgeText({ text: "" });
+  // NOTE: [design thought] the background worker deletes, so a judgment it is running cannot
+  // write anything back afterwards
+  await chrome.runtime.sendMessage({ type: "delete_all" });
   alert("Deleted.");
 };
 

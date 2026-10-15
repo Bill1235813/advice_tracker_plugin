@@ -6,7 +6,6 @@ h1 { font-size: 20px; margin: 0 0 4px; } .sub { color: #647084; margin-top: 0; }
 .quote { background: #f3f4fb; border-left: 3px solid #4f5bd5; padding: 8px 12px; margin: 6px 0 10px; white-space: pre-wrap; font-size: 13px; max-height: 220px; overflow: auto; }
 .item { margin: 12px 0; } .item .q { display: block; margin-bottom: 3px; font-weight: 600; }
 .req { color: #b3403a; }
-.optional { margin: 18px 0 0; padding-top: 6px; border-top: 1px solid #e4e4de; color: #647084; font-size: 12.5px; }
 .scale { display: flex; gap: 4px; max-width: 520px; }
 .scale label { flex: 1; text-align: center; font-size: 12px; color: #1f2328; cursor: pointer; padding: 4px 2px; border: 1px solid #d9d9d3; border-radius: 6px; background: #fff; }
 .scale label:has(input:checked) { background: #eeeffb; border-color: #4f5bd5; color: #4f5bd5; font-weight: 600; }
@@ -14,7 +13,9 @@ h1 { font-size: 20px; margin: 0 0 4px; } .sub { color: #647084; margin-top: 0; }
 input[type=radio], input[type=checkbox], select { accent-color: #4f5bd5; }
 textarea, select { width: 100%; max-width: 520px; box-sizing: border-box; font: inherit; padding: 6px; border: 1px solid #d9d9d3; border-radius: 6px; }
 .transcript { min-height: 160px; font-size: 12px; font-family: ui-monospace, monospace; }
-.checks label, label.choice { display: block; margin: 2px 0; }
+.checks label { display: block; margin: 2px 0; }
+.support { border: 1px solid #b9dcc5; background: #f3faf5; border-radius: 10px; padding: 4px 18px 10px; margin: 24px 0; }
+.support h2 { font-size: 15px; color: #1f5e3a; } .support ul { padding-left: 20px; }
 details { margin-top: 6px; } summary { cursor: pointer; color: #4f5bd5; }
 button { padding: 8px 18px; border-radius: 8px; border: 1px solid #4f5bd5; background: #4f5bd5; color: #fff; font: inherit; cursor: pointer; margin-top: 10px; }
 button.secondary { background: #f1f1ec; color: #1f2328; border-color: #d9d9d3; }

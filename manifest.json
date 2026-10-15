@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Advice Tracker (research study)",
-  "version": "0.3.0",
-  "description": "Study extension: notices when you ask an AI assistant for advice about your own situation, asks a few questions when that conversation ends, and checks back two weeks later.",
+  "version": "0.4.1",
+  "description": "Study extension: notices when you ask an AI assistant for advice on a personal decision, asks you to rate the advice, and checks back two weeks later.",
   "permissions": [
     "storage",
     "alarms",

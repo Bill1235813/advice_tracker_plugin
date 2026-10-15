@@ -5,19 +5,19 @@
   body { max-width: 640px; margin: 0 auto; padding: 24px; font: 14px/1.5 system-ui, sans-serif; color: #1f2328; }
   label { display: block; margin: 12px 0 4px; font-weight: 600; } .help { color: #647084; font-size: 12.5px; font-weight: normal; }
   input[type=text], input[type=number], textarea { width: 100%; box-sizing: border-box; padding: 6px; border: 1px solid #d9d9d3; border-radius: 6px; font: inherit; }
-  #share-default label { display: block; margin: 4px 0; font-weight: normal; }
+  #rating-mode label { display: block; margin: 4px 0; font-weight: normal; }
   button { padding: 8px 18px; border-radius: 8px; border: 1px solid #4f5bd5; background: #4f5bd5; color: #fff; font: inherit; cursor: pointer; margin-top: 16px; margin-right: 8px; }
   button.danger { background: #b3403a; border-color: #b3403a; } button.secondary { background: #f1f1ec; color: #1f2328; border-color: #d9d9d3; }
   #saved { color: #1e7f4f; margin-left: 8px; }
 </style>
 <h1>Advice Tracker settings</h1>
-<label>Participant ID <span class="help">(your Prolific ID or the code from the onboarding email)</span></label>
+<label>Participant ID <span class="help">(your study code from the onboarding survey, e.g. AT-1234-5678-9012)</span></label>
 <input type="text" id="participantId">
-<label>What to share with the research team after each advice conversation</label>
-<div id="share-default">
-  <label><input type="radio" name="shareDefault" value="full"> my answers and the conversation <span class="help">(names, e-mails, phone numbers, addresses removed automatically; you can still review or change it for any conversation)</span></label>
-  <label><input type="radio" name="shareDefault" value="ratings"> my answers only</label>
-  <label><input type="radio" name="shareDefault" value="ask"> ask me every time</label>
+<label>When to ask about an advice conversation <span class="help">(set by the research team; a conversation already under way keeps the mode it started with)</span></label>
+<div id="rating-mode">
+  <label><input type="radio" name="ratingMode" value="frequent"> <b>Frequent</b>: <span class="help">rate right after the first advice message; after each follow-up, a small pop-up asks whether to update the answers</span></label>
+  <label><input type="radio" name="ratingMode" value="switching"> <b>Switching</b>: <span class="help">rate when you move to another conversation (you can update it later) and when the topic changes (final answers)</span></label>
+  <label><input type="radio" name="ratingMode" value="periodical"> <b>Periodical</b>: <span class="help">rate at the first 3-minute pause in the conversation; later pauses offer an update</span></label>
 </div>
 <details><summary>Advanced (pre-filled by the research team; do not change unless asked)</summary>
 <label>Study server URL</label>
@@ -27,11 +27,11 @@
 </details>
 <label>Days until the follow-up check-in</label>
 <input type="number" id="followupDays" min="1" max="60">
-<label>Minutes without activity after which an advice conversation counts as finished</label>
-<input type="number" id="endQuietMinutes" min="1" max="120">
+<label>Minutes without activity after which an advice conversation counts as finished <span class="help">(1440 = one day; a change of topic always ends it)</span></label>
+<input type="number" id="endQuietMinutes" min="1" max="10080">
 <label>Never capture on these sites <span class="help">(one hostname per line, e.g. claude.ai)</span></label>
 <textarea id="excludedHosts" rows="3"></textarea>
-<label>Names to remove from shared conversations <span class="help">(one per line: your name, family, employer)</span></label>
+<label>Names to remove from stored conversations <span class="help">(one per line: your name, family, employer)</span></label>
 <textarea id="redactNames" rows="3"></textarea>
 <label><input type="checkbox" id="localOnly"> Hold my answers on this computer <span class="help">(nothing is uploaded until you untick this; your messages are still checked by the study's AI model to find advice conversations)</span></label>
 <label><input type="checkbox" id="paused"> Pause tracking</label>
@@ -40,4 +40,5 @@
   <button class="secondary" id="export">Export my data (JSON)</button>
   <button class="danger" id="delete">Delete all data on this computer</button>
 </div>
+<script src="../config.js"></script>
 <script src="options.js"></script>
