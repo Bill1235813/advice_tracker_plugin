@@ -21,12 +21,16 @@ version (one-click install) is in preparation; until then, follow the steps belo
   (it captured nothing before). Only the messages themselves are kept: no "thinking" summaries or
   timers ("Worked for 13s"), no hidden screen-reader labels ("You said", "Gemini said"), no
   repeated copies of your message, no website icons recorded as images. Perplexity's questions are
-  captured again.
+  captured again. Edited messages, messages sent again with the same words ("continue", "ok"),
+  and long chats that a site shows only in part are followed correctly.
 - **The conversation is sent with your answers.** When you submit answers about an advice
   conversation, that conversation (your messages and the AI's replies, from your message that asked
   for advice on) is sent with them, with personal details removed automatically on your computer
   first; once more, complete, when the conversation ends. The two-week check-in no longer shows it
-  for review (except for conversations from before version 0.5, which were promised that review).
+  for review (except for conversations from version 0.4, which were promised that review; the text
+  of conversations that version 0.3 recorded is never sent, apart from what you chose to share
+  then; a conversation still under way at the update counts as a new one). The note under the
+  questions says which applies.
   The setting "Hold my answers on this computer" is gone: if you had ticked it, the answers it held
   stay on your computer until you choose, on the settings page (it opens after the update), to send
   or delete them.
@@ -204,6 +208,9 @@ e-mail.
   site (both are quick fixes). If the popup says "No access to ...", allow the site again under
   `chrome://extensions` → Advice Tracker → Details → Site access.
 - **"No participant ID set"** in the popup: open the settings page and save your ID.
+- **"Advice Tracker was updated meanwhile"** in a panel: the extension was updated or reloaded while
+  the panel was open, so it could not send your answer. Reload the chat page; questions that still
+  wait for an answer are listed under the extension icon → **Open questions & check-ins**.
 - **Chrome removed the extension** after an update: repeat "Load unpacked" from the same folder.
 - **Anything else**: e-mail the study team with what you did and what you saw; the
   service-worker log (`chrome://extensions` → Advice Tracker → *Inspect views: service worker*)
@@ -235,7 +242,7 @@ e-mail.
 - Uploads (`POST /events`): `episode_rating` (answers + the redacted transcript from the opening
   turn through the answered one), `episode_transcript` (the complete redacted transcript from the
   opening turn, when an answered episode ends, or when tracking is on again if it ended while
-  tracking was off), `checkin` (for an episode from before 0.5 also the conversation as reviewed
+  tracking was off), `checkin` (for an episode from 0.4 also the conversation as reviewed
   there, `transcript` and `transcript_edited`, as 0.4 sent it), `prompt`, `not_advice`
   (`had_answers`: answers sent before belong to a removed episode), `heartbeat` and `status` (tracking status: `tracking`, `paused`,
   `paused_at`, `listening_sites`, `excluded_sites`, `sites_without_access`). On removal Chrome

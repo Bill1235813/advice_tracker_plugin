@@ -2,7 +2,7 @@
 // snoozed panel, a notification, "open in a tab") and day-14 check-ins that are due. The
 // questions come from lib/questions.js, the same lists the rating panel uses. (The conversation
 // itself goes with the answers, redacted; the check-in asks how things went. Only an episode from
-// before 0.5, whose conversation was to be sent after a review here, still shows it for review.)
+// 0.4, whose conversation was to be sent after a review here, still shows it for review.)
 //   ?rate=<id>      opened from a notification or the panel's "open in a tab"; also works for an
 //                   episode that is still going on, or that has answers to update (&stage=<stage>:
 //                   the question the panel asked, e.g. temp after a move to another site)
@@ -19,6 +19,7 @@ async function main() {
   const list = document.getElementById("list");
   const now = Date.now();
   for (const episode of episodes) {
+    episode.text = conversationGoes(episode, settings);
     // the check-in once it is due (with ?checkin=, also before: for testing and demos)
     const checkinDue = Modes.checkinDue(episode, now) ||
       (Modes.checkinDue(episode, Infinity) && ["all", episode.id].includes(params.get("checkin")));
@@ -33,12 +34,21 @@ async function main() {
   document.getElementById(`card-${focus}`)?.scrollIntoView();
 }
 
-// The episode's conversation: kept in the record until its check-in, else (an episode still going
-// on) taken from the chat's latest snapshot
-function messagesOf(episode, stored) {
+// what happens to the episode's conversation (lib/questions.js), as the background decides it
+function conversationGoes(episode, settings) {
+  return Questions.conversationGoes(episode, isExcluded(new URL(episode.url).hostname, settings.excludedHosts || []));
+}
+
+// The conversation of an episode from 0.4, for its review: the record's copy once the episode
+// ended; while it goes on, its turns in the chat's latest copy, if they are still there unchanged
+// (lined up as the background does: older turns may have come in above since)
+function reviewMessages(episode, stored) {
   if (episode.messages) return episode.messages;
-  const { userTurns, replies } = Episodes.splitTurns(stored[`snap:${episode.chatKey}`]?.messages || []);
-  return Episodes.episodeMessages(userTurns, replies, episode.start, episode.end);
+  if (episode.status !== "open") return [];
+  const chat = stored[`chat:${episode.chatKey}`], snapshot = stored[`snap:${episode.chatKey}`];
+  const { userTurns, replies } = Episodes.splitTurns(snapshot?.messages || []);
+  const shift = Episodes.findOffset(chat?.ids || [], Episodes.turnIds(userTurns));
+  return shift < 0 ? [] : Episodes.episodeMessages(userTurns, replies, episode.start + shift, episode.end + shift);
 }
 
 function quote(text) {
@@ -71,7 +81,7 @@ function ratingCard(episode, asked) {
     ${answered ? '<p class="meta">Your earlier answers are filled in; change any that are different now.</p>' : ""}
     <div class="form" ${confirmed ? "" : "hidden"}>
       ${Questions.render(questions)}
-      <p class="meta">Your answers are sent with this conversation, from the message quoted above on, with names and other personal details removed.</p>
+      <p class="meta">${Questions.escape(Questions.CONVERSATION_NOTES[episode.text])}</p>
       <button type="button" class="submit">Submit</button></div>`;
   Questions.fill(card, questions, episode.answers);
   card.querySelector(".yes").onclick = () => { card.querySelector(".confirm").hidden = true; card.querySelector(".form").hidden = false; };
@@ -95,8 +105,8 @@ function checkinCard(episode, episodes, settings, stored) {
   const card = newCard(episode, "checkin");
   const later = episodes.filter((other) => (other.related || []).includes(episode.id)).length;
   const days = Math.round((Date.now() - episode.openedAt) / 86400000);
-  // an episode from before 0.5: its conversation, redacted as it will be sent, for review
-  const messages = episode.reviewAtCheckin && !episode.keepText && !episode.heldAnswers ? messagesOf(episode, stored) : [];
+  // an episode from 0.4: its conversation, redacted as it will be sent, for review
+  const messages = episode.text === "at_checkin" ? reviewMessages(episode, stored) : [];
   const review = messages.length ? Questions.transcript(messages, settings.redactNames || []) : null;
   const removed = review ? Object.entries(review.counts).map(([kind, count]) => `${count} ${kind}`).join(", ") || "nothing found" : "";
   // the participant's own description of the decision, if they gave one; else what they asked

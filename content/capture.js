@@ -18,9 +18,11 @@
   const ACTIVITY_EVERY_MS = 15000;  // while typing, at most one "activity" message per 15 s
 
   let conversation = null;          // {key, temporary, aliasOf, known, sent, viewed}: the chat this page shows
-                                    // (known: its user turns this page showed, in order; sent: the places
-                                    // among them of the turns the participant sent here)
-  let sends = [];                   // send gestures not yet matched to a new user turn: {at, whileGenerating}
+                                    // (known: its turns this page showed, {text, reply} in order; sent: the
+                                    // places among them of the turns the participant sent here)
+  let sends = [];                   // send gestures not yet matched to a new user turn: {at, edit (from an edit box)}
+  let freshSinceSent = 0;           // turns new to this page since the last snapshot sent (no more can be new to the background) ...
+  let firstSight = true;            // ... unless this page had not shown the chat before (then every turn is new to it)
   let lastSignature = "";
   let timer = null, changingSince = 0, lastChange = 0, lastActivity = 0;
   let wasGenerating = false, lastGenerating = 0;   // a reply being written at the last snapshot; when one was last seen
@@ -172,8 +174,8 @@
   // a brand-new chat, which gets its id only when its first turn is sent. Until then it has a
   // temporary key; when the URL gains an id right after a send, it is the same chat, and the
   // snapshot tells the background that the new key is an alias of the temporary one.
-  // `userTurns`, when known: the number of user turns the page shows now.
-  function followConversation(userTurns = null) {
+  // `shown`, when known: the turns the page shows now ({text, reply}).
+  function followConversation(shown = null) {
     const id = config.conversationId(location);
     const urlKey = id ? `${location.hostname}/${id}` : null;
     if (conversation && (urlKey ? urlKey === conversation.key : conversation.temporary)) {
@@ -182,18 +184,22 @@
       return;
     }
     if (conversation?.temporary && urlKey && (conversation.sent.size || sends.length)) {
-      // NOTE: [edge case callout] the new id names the same chat only if the page shows no more
-      // user turns than this page showed or sent here; otherwise a stray Enter on the new-chat
-      // page, followed by opening an old chat, would make that old chat an alias and its last turn
-      // "sent" (opening a chat from a link also drops pending gestures). With no turns on the page
-      // yet (still rendering) the next snapshot decides.
-      const onPage = userTurns ?? (extractMessages() || []).filter((m) => m.role === "user").length;
-      if (onPage === 0) return;
-      if (onPage <= conversation.known.length + sends.length) {
+      // NOTE: [edge case callout] the new id names the same chat only if the page's turns line up
+      // with the ones this page showed (or it showed none yet). Otherwise it is another chat: a
+      // stray Enter on the new-chat page, then an old chat opened (that old chat would become an
+      // alias, and its last turn "sent"), or a Grok private chat at "/", then a new chat there that
+      // gets its id. With no turns on the page yet (still rendering) the next snapshot decides.
+      const turns = shown ?? Episodes.turnsOf(extractMessages() || []);
+      if (!turns.length) return;
+      // (the same chat: the known turns are there, with their replies, not placed after them or edited)
+      const placed = Episodes.placeTurns(conversation.known, turns, sends.length);
+      if (!conversation.known.length || (placed.at >= 0 && placed.editedFrom === null && !placed.after && !placed.disagree)) {
         conversation = { ...conversation, key: urlKey, temporary: false, aliasOf: conversation.key };
         if (!conversation.viewed) reportView();
         return;
       }
+      startConversation(urlKey);        // the gestures stay: a message just sent there is its first turn
+      return;
     }
     // a different chat: opened from the sidebar, or a new one started
     startConversation(urlKey);
@@ -203,6 +209,8 @@
   function startConversation(urlKey) {
     conversation = { key: urlKey || `${location.hostname}/new-${Date.now().toString(36)}`, temporary: !urlKey,
                      aliasOf: null, known: [], sent: new Set(), viewed: false };
+    freshSinceSent = 0;
+    firstSight = true;
     reportView();
   }
 
@@ -251,10 +259,11 @@
     clearTimeout(timer);
     timer = null;
     changingSince = 0;
-    const messages = extractMessages();
+    let messages = extractMessages();
     if (!messages) return;            // an edit box is open; closing it changes the page, and a snapshot follows
-    const userTurns = messages.filter((m) => m.role === "user").map((m) => m.content);
-    followConversation(userTurns.length);
+    followConversation(Episodes.turnsOf(messages));
+    messages = withPrompt(messages);
+    const shown = Episodes.turnsOf(messages);
     // NOTE: [design thought] user turns new to this page (below the turns it showed before) are
     // matched with recent send gestures, newest first. Turns left without a gesture are history:
     // a past chat rendering, or older messages loading above (lib/episodes.js, placeTurns).
@@ -264,31 +273,41 @@
     // sit still for a long time while the assistant thinks, so nothing was snapshot meanwhile
     if (generating || wasGenerating) lastGenerating = now;
     wasGenerating = generating;
-    // ... or, for a message sent while a reply was still being written, within this time after the
-    // reply ended: Claude, Grok and Perplexity queue such a message and show it only then
-    sends = sends.filter((send) => now - (send.whileGenerating ? Math.max(send.at, lastGenerating) : send.at) < SEND_WINDOW_MS);
-    let placed = Episodes.placeTurns(conversation.known, userTurns);
-    if (placed.at < 0 && userTurns.length && (conversation.temporary || conversation.aliasOf)) {
-      // a chat without an id of its own yet, or one that just got it: turns that do not line up with
-      // this page's turns at all are a new chat (Grok's private chats stay at "/"), or its first turns
-      // (the gestures of its first messages stay)
+    // ... or within this time after the reply being written ended: Claude, Grok and Perplexity queue
+    // a message sent during a reply and show it only then, and a site can think for a long time
+    // (with its stop button shown) before the reply to a message starts
+    sends = sends.filter((send) => now - Math.max(send.at, lastGenerating) < SEND_WINDOW_MS);
+    if (!conversation.known.length) firstSight = true;
+    let placed = Episodes.placeTurns(conversation.known, shown, sends.length);
+    // Turns that do not line up with this page's turns at all: on a chat without an id of its own
+    // yet, or one that just got it, a new chat (Grok's private chats stay at "/") or its first turns
+    // (the gestures of its first messages stay); elsewhere, right after a message sent from an edit
+    // box, when the page shows no more turns than messages just sent, the first turn on the page
+    // was edited (the turns before it are not rendered).
+    // NOTE: [edge case callout] any other page whose turns do not line up shows a part of a long
+    // chat this page did not show before (scrolled far up): nothing there was just sent
+    const edited = shown.length <= sends.length && sends.some((send) => send.edit);
+    if (placed.at < 0 && shown.length && (conversation.temporary || conversation.aliasOf || edited)) {
       if (conversation.temporary) startConversation(null);
       else conversation = { ...conversation, known: [], sent: new Set() };
-      placed = Episodes.placeTurns([], userTurns);
+      firstSight = true;
+      placed = Episodes.placeTurns([], shown);
     }
     // the places of the turns sent here move with older turns loaded above; an edit replaces turns
     if (placed.above) conversation.sent = new Set([...conversation.sent].map((at) => at + placed.above));
     if (placed.editedFrom !== null) conversation.sent = new Set([...conversation.sent].filter((at) => at < placed.editedFrom));
     conversation.known = placed.known;
-    const claimed = Math.min(placed.fresh, sends.length), end = placed.at + userTurns.length;
+    const claimed = Math.min(placed.fresh, sends.length), end = placed.at + shown.length;
     for (let at = end - claimed; at < end; at++) conversation.sent.add(at);
     sends.splice(0, claimed);
-    // the background lines up the page's turns with its stored copy by their ids (this page's
-    // numbering): the ids of the turns on the page that were sent here
-    const ids = Episodes.turnIds(userTurns);
+    freshSinceSent += placed.fresh;
+    // the background lines up the page's turns with its stored copy (lib/episodes.js, mergeWindow):
+    // the ids of the turns on the page that were sent here (this page's numbering), and how many
+    // turns are new to the page
+    const ids = Episodes.turnIds(shown.map((turn) => turn.text));
     const sentHere = placed.at < 0 ? [] : ids.filter((id, k) => conversation.sent.has(placed.at + k));
 
-    if (!userTurns.length) return;
+    if (!shown.length) return;
     // NOTE: [design thought] "settled": the page has been still for the settle time and shows no
     // sign of a reply still being written (the site's stop button, lib/sites.js), so a reply on
     // it is complete. Stillness alone is not enough: a "Thinking…" line can sit unchanged for a
@@ -301,8 +320,20 @@
     lastSignature = signature;
     chrome.runtime.sendMessage({
       type: "snapshot", key: conversation.key, aliasOf: conversation.aliasOf, site: config.name, url: location.href,
-      messages, sent: sentHere, settled, capturedAt: now,
+      messages, sent: sentHere, fresh: firstSight ? null : freshSinceSent, settled, capturedAt: now,
     }).catch(() => {});
+    freshSinceSent = 0;
+    firstSight = false;
+  }
+
+  // NOTE: [edge case callout] a site that keeps only the messages near the screen in the page
+  // (Claude, Grok, Perplexity) can show a reply whose prompt is no longer there: a long reply,
+  // with the participant at its end and a new message below it. If that reply is the reply of
+  // one turn this page showed, its prompt is put back above it, so that the page's turns line up
+  // with the known ones (and the background gets a whole turn; lib/episodes.js, promptOf).
+  function withPrompt(messages) {
+    const lead = Episodes.promptOf(conversation.known, messages);
+    return lead ? [{ role: "user", content: lead.text }, ...messages] : messages;
   }
 
   // NOTE: [pedagogical] a debounce with a cap: every change restarts the 2 s timer, so a reply
@@ -319,10 +350,11 @@
   // send gestures: Enter in a text box (Shift+Enter is a new line), or a button labelled send/submit.
   // NOTE: [edge case callout] the page may have switched chats since the last snapshot ("New chat",
   // then a quick question): follow it first, so the gesture is credited to the chat it was made in
-  function recordSend() {
+  // `edit`: sent from an edit box in one of the participant's earlier messages
+  function recordSend(edit = false) {
     if (trackingOff) return;
     followConversation();
-    sends.push({ at: Date.now(), whileGenerating: isGenerating() });
+    sends.push({ at: Date.now(), edit });
     lastActivity = 0;               // a send always counts as activity
     reportActivity();
   }
@@ -335,19 +367,27 @@
     // a reply's code block can be an editor (ChatGPT): typing there is not writing a message
     const turn = event.target.closest(config.turns);
     if (turn && config.role(turn) === "assistant") return;
-    if (event.key === "Enter" && !event.shiftKey && !event.isComposing) recordSend();
+    if (event.key === "Enter" && !event.shiftKey && !event.isComposing) recordSend(Boolean(turn));
     else reportActivity();
   }, true);
   // NOTE: [edge case callout] some buttons send without saying so: a suggested follow-up question,
   // or a send button labelled in the participant's language (config.sends)
+  // opening another chat in this tab (a link in the sidebar, "New chat"): a gesture that sent nothing
+  // must not claim its turns. A link that leaves this chat on the screen does not count: a source
+  // in a reply (it opens in a new tab), a click with a modifier key.
+  function opensOtherChat(link, event) {
+    const target = new URL(link.href, location.href);
+    if (target.origin !== location.origin || link.target === "_blank" || event.ctrlKey || event.metaKey || event.shiftKey) return false;
+    const id = config.conversationId(target);
+    return id ? id !== config.conversationId(location) : config.isNewChat(target);
+  }
   document.addEventListener("click", (event) => {
-    // opening another chat (a link in the sidebar): a gesture that sent nothing must not claim its turns
     const link = event.target.closest?.("a[href]");
-    if (link && config.conversationId(new URL(link.href)) !== config.conversationId(location)) sends = [];
+    if (link && opensOtherChat(link, event)) sends = [];
     const button = event.target.closest?.("button");
     if (!button || button.matches(config.generating) || button.closest(config.generating)) return;    // Stop is not a send
     const label = ["aria-label", "data-testid", "id", "title", "type"].map((name) => button.getAttribute(name) || "").join(" ");
-    if (/send|submit/i.test(label) || (config.sends && button.matches(config.sends))) recordSend();
+    if (/send|submit/i.test(label) || (config.sends && button.matches(config.sends))) recordSend(Boolean(button.closest(config.turns)));
   }, true);
 
   // leaving the tab: capture the last state now rather than after the debounce; coming back to
@@ -380,9 +420,11 @@
     } else if (message.type === "close_panel") {
       RatingPanel.close(message.id);
     } else if (message.type === "forget") {
-      // "delete all data": the turns sent on this page so far are history from now on
+      // "delete all data": the turns sent on this page so far are history from now on (the
+      // background waits for this answer before it takes snapshots again)
       conversation?.sent.clear();
       sends = [];
+      sendResponse({ forgotten: true });
     } else if (message.type === "debug_capture") {
       followConversation();
       sendResponse({ site: config.name, key: conversation.key, aliasOf: conversation.aliasOf,

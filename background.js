@@ -26,7 +26,7 @@
 //                   deleted only when the participant chooses so on the settings page
 //   heartbeatAt     when the last heartbeat was sent
 //   deletedAt       when "delete all data" last ran
-importScripts("config.js", "lib/sites.js", "lib/episodes.js", "lib/modes.js", "lib/redact.js", "lib/similarity.js");
+importScripts("config.js", "lib/sites.js", "lib/episodes.js", "lib/modes.js", "lib/redact.js", "lib/similarity.js", "lib/questions.js");
 
 const DEFAULT_SETTINGS = {
   participantId: "", serverUrl: STUDY_CONFIG.serverUrl, studyKey: STUDY_CONFIG.studyKey, paused: false, pausedAt: null,
@@ -43,7 +43,7 @@ const SNOOZE_MINUTES = 60;   // "later (1 h)"
 const ASK_WAIT_MINUTES = 5;  // a question about a reply waits at most this long for the reply to be complete
 const HEARTBEAT_MINUTES = 12 * 60;
 let generation = 0;          // "delete all data" bumps it; judging loops begun before stop writing
-let deletingSince = 0;       // when "delete all data" last began: snapshots taken before it are ignored
+let deletingSince = 0;       // when "delete all data" last ended (Infinity while it runs): snapshots taken before are ignored
 
 // ---------------- storage helpers ----------------
 async function load(name) { return (await chrome.storage.local.get(name))[name]; }
@@ -59,11 +59,12 @@ const excluded = (settings, url) => isExcluded(new URL(url).hostname, settings.e
 // consent), while tracking is paused, or on a site they excluded; nothing is judged or asked then.
 const trackingOff = (settings) => !settings.participantId || settings.paused;
 const notTracking = (settings, url) => trackingOff(settings) || excluded(settings, url);
-// An episode's conversation stays on the computer: its site is excluded, its answers were held by
-// "Hold my answers on this computer" (before 0.5) and wait for the participant's decision, the
-// participant deleted those (keepText), or it is from before 0.5, when the conversation was sent
-// only after a review at the check-in (reviewAtCheckin; the check-in page still offers it).
-const textStays = (record, settings) => Boolean(record.keepText || record.heldAnswers || record.reviewAtCheckin) || excluded(settings, record.url);
+// An episode's conversation does not go with its answers (lib/questions.js, conversationGoes): its
+// site is excluded, its answers were held by "Hold my answers on this computer" (before 0.5) and
+// wait for the participant's decision, the participant deleted those or it is from 0.3 (keepText),
+// or it is from 0.4, when the conversation was sent only after a review at the check-in
+// (reviewAtCheckin; the check-in page still offers it).
+const textStays = (record, settings) => Questions.conversationGoes(record, excluded(settings, record.url)) !== "with_answers";
 
 // NOTE: [design thought] chrome.storage has no transactions, so read-modify-writes of the same
 // record go through a promise chain per record name: they run one after the other
@@ -117,15 +118,6 @@ async function chatKey(message) {
   return message.key;
 }
 
-// The page's turn ids count repeated texts within the part of the chat it shows; when that part
-// is put behind `offset` stored older turns, the same turns sit further down, so the ids of the
-// turns sent there are renumbered by position.
-function renumberSent(shownMessages, merged, offset, sentIds) {
-  const shownIds = Episodes.turnIds(Episodes.splitTurns(shownMessages).userTurns);
-  const mergedIds = Episodes.turnIds(Episodes.splitTurns(merged).userTurns);
-  return sentIds.map((id) => (shownIds.includes(id) ? mergedIds[offset + shownIds.indexOf(id)] : id));
-}
-
 async function onSnapshot(message, sender) {
   const started = generation;
   const stale = () => started !== generation;      // "delete all data" happened meanwhile: nothing is written
@@ -140,20 +132,35 @@ async function onSnapshot(message, sender) {
     if (stale() || (!chat && !message.sent.length)) return false;
     if (!chat) await save(`chat:${key}`, Episodes.newChat({ key, site: message.site, now: Date.now() }));
     const stored = await load(`snap:${key}`);
-    let messages = message.messages, sent = message.sent;
+    const counted = (await load(`sent:${key}`)) || [];
+    let messages = message.messages, sent = message.sent, storedSent = [], captured = counted;
     if (stored) {
       // a page that shows only part of a long chat keeps the rest of the stored copy
-      const merged = Episodes.mergeWindow(stored.messages, message.messages);
+      // NOTE: [design thought] a turn's id counts the earlier turns with the same text, so the ids
+      // of sent turns are renumbered with their turns: the page's from its own numbering, the
+      // stored ones where older turns came in above (or an edit replaced them)
+      const merged = Episodes.mergeWindow(stored.messages, message.messages, { fresh: message.fresh ?? null, claimed: message.sent.length > 0 });
+      const turnsOf = (list) => Episodes.splitTurns(list).userTurns;
+      const pageId = merged.pageShift === null ? () => null : Episodes.renumber(turnsOf(message.messages), turnsOf(merged.messages), merged.pageShift);
+      const storedId = Episodes.renumber(turnsOf(stored.messages), turnsOf(merged.messages), merged.storedShift, merged.storedKeep);
       messages = merged.messages;
-      if (messages !== message.messages) sent = renumberSent(message.messages, messages, merged.offset, message.sent);
+      sent = message.sent.map(pageId).filter(Boolean);
+      storedSent = stored.sent.map(storedId).filter(Boolean);
+      // the popup's count: the captured turns of the stored copy are renumbered too
+      const storedIds = new Set(Episodes.turnIds(turnsOf(stored.messages)));
+      captured = captured.map((id) => (storedIds.has(id) ? storedId(id) : id)).filter(Boolean);
     }
-    const captured = (await load(`sent:${key}`)) || [];
     if (stale()) return false;
-    if (sent.some((id) => !captured.includes(id))) await save(`sent:${key}`, [...new Set([...captured, ...sent])]);
+    const count = [...new Set([...captured, ...sent])];
+    if (JSON.stringify(count) !== JSON.stringify(counted)) await save(`sent:${key}`, count);
     const same = stored && JSON.stringify(stored.messages) === JSON.stringify(messages);
+    // whole: the copy holds the chat from its first settled turn on (Episodes.sync). A copy begun
+    // from a part of the chat further down (its earlier copy was dropped) stays a part.
+    const pageIds = Episodes.turnIds(Episodes.splitTurns(messages).userTurns);
+    const whole = stored ? stored.whole ?? true : !(Episodes.lineUp(chat?.ids || [], pageIds) > 0);
     await save(`snap:${key}`, {
-      messages, url: message.url, site: message.site, tabId: sender.tab.id, settled: Boolean(message.settled),
-      sent: [...new Set([...(stored?.sent || []), ...sent])],
+      messages, url: message.url, site: message.site, tabId: sender.tab.id, settled: Boolean(message.settled), whole,
+      sent: [...new Set([...storedSent, ...sent])],
       changedAt: same ? stored.changedAt : Date.now(),        // the quiet timer counts from here
       version: (stored?.version || 0) + 1,
     });
@@ -258,11 +265,14 @@ async function settle(key) {
       if (stale()) return;
       await save(`chat:${key}`, { ...chat, pending: null });
       await dropText(key, snapshot);
+      // an episode that ended meanwhile (a judgment in flight closed it at a change of topic)
+      for (const [, record] of await loadAll("episode:")) if (record.chatKey === key) await forgetEnded(record.id);
+      await updateBadge();
       return;
     }
 
     const before = chat;
-    ({ chat, closed } = Episodes.sync(chat, userTurns, new Set(snapshot.sent)));
+    ({ chat, closed } = Episodes.sync(chat, userTurns, new Set(snapshot.sent), snapshot.whole ?? true));
     chat = closed ? await closeEpisode(key, chat, closed, page) : await afterSync(before, chat, page, settings);
     // "No" (not advice) on the open episode: it ends here, so its later turns go to the advice judge only
     if (chat.state === "episode" && (await load(`episode:${chat.episodeId}`))?.status === "removed") {
@@ -276,9 +286,16 @@ async function settle(key) {
       // a judgment is in flight: collect its label. The alarm resumes this loop if Chrome stops
       // the worker meanwhile (it does so after 30 s without events).
       chrome.alarms.create(`judge|${key}`, { delayInMinutes: 1 });
-      const result = await collect(chat.pending.id, settings);
+      const result = chat.pending.label ? { state: "done", label: chat.pending.label } : await collect(chat.pending.id, settings);
       if (stale()) return;
       if (result.state === "waiting") continue;
+      if (result.state === "done" && !chat.pending.label && (await load(`snap:${key}`))?.version !== snapshot.version) {
+        // NOTE: [edge case callout] the page changed while the label was on its way: it is kept with
+        // the judgment and applied once the chat is lined up with the page again (Episodes.sync drops
+        // it if the participant edited the judged turn meanwhile; the server forgets a label it gave)
+        await save(`chat:${key}`, { ...chat, pending: { ...chat.pending, label: result.label } });
+        continue;
+      }
       if (result.state === "done") {
         const job = chat.pending;
         ({ chat, closed } = Episodes.applyLabel(chat, job, result.label));
@@ -310,8 +327,10 @@ async function settle(key) {
       const id = await submit(job, chat, settings);
       if (stale()) return;
       if (!id) { chrome.alarms.create(`judge|${key}`, { delayInMinutes: RETRY_MINUTES }); return; }
-      // sentAt: when the page last changed before this judgment, i.e. about when the turn was sent
-      await save(`chat:${key}`, { ...chat, pending: { id, kind: job.kind, turn: job.turn, sentAt: snapshot.changedAt } });
+      // sentAt: when the page last changed before this judgment, i.e. about when the turn was sent;
+      // hash: the turn's text, which an edit can change before the label comes (Episodes.sync)
+      await save(`chat:${key}`, { ...chat, pending: { id, kind: job.kind, turn: job.turn, sentAt: snapshot.changedAt,
+                                                      hash: Episodes.hash(userTurns[job.turn - 1]) } });
       continue;
     }
 
@@ -343,7 +362,16 @@ async function closeEpisode(key, chat, closed, page) {
 }
 
 async function finishClosing(key, chat, page) {
-  if (chat.closing.id) await episodeClosed(chat.closing, page);
+  if (chat.closing.id) {
+    // NOTE: [edge case callout] a note replayed after a stop has the turn numbers of the snapshot
+    // that closed the episode (those of chat.ids); the page may have loaded older turns above since.
+    // If its turns are no longer there unchanged, the record closes without text.
+    const shift = Episodes.findOffset(chat.ids, Episodes.turnIds(page.userTurns));
+    const moved = (turn) => (turn === undefined || turn === null ? turn : turn + shift);
+    const closing = shift > 0 ? { ...chat.closing, start: moved(chat.closing.start), opening: moved(chat.closing.opening),
+                                  end: moved(chat.closing.end) } : chat.closing;
+    await episodeClosed(closing, shift < 0 ? null : page);
+  }
   chat = { ...chat, closing: null };
   if (page.started === generation) await save(`chat:${key}`, chat);
   return chat;
@@ -493,10 +521,11 @@ function closedRecord(current, decision, closed, messages, waits = false) {
   return { ...next, messages };
 }
 
-// `closed`: {id, start, opening, end, closedBy, openedAt}
+// `closed`: {id, start, opening, end, closedBy, openedAt}; `page`: the snapshot the episode's turns
+// are in (null: they are not there any more)
 async function episodeClosed(closed, page) {
   for (const alarm of ["pause", "ask"]) chrome.alarms.clear(`${alarm}|${closed.id}`);
-  const messages = Episodes.episodeMessages(page.userTurns, page.replies, closed.start, closed.end);
+  const messages = page && Episodes.episodeMessages(page.userTurns, page.replies, closed.start, closed.end);
   const settings = await getSettings();
   let closedNow = false;
   const record = await updateEpisode(closed.id, (current) => {
@@ -514,45 +543,68 @@ async function episodeClosed(closed, page) {
   });
   if (record && closedNow) await ask(record.id, "waitingPage");
   // the complete conversation of an episode with answers (turns may have come after the last answers)
-  if (record?.answers && closedNow && !trackingOff(settings) && !textStays(record, settings)) {
-    await uploadTranscript(record, Episodes.splitTurns(messages), closed.start, settings);
-  }
+  if (record && closedNow && messages) await sendTranscript(record.id, messages);
   await updateBadge();
 }
 
-// The episode's complete conversation from its opening (`turns`: user turns and replies, the first
-// one being turn `first` of the chat), redacted; the record notes that it was sent.
-async function uploadTranscript(record, turns, first, settings) {
-  const redacted = Redact.redactMessages(Episodes.episodeMessages(turns.userTurns, turns.replies, record.opening - first + 1,
-                                                                  record.end - first + 1), settings.redactNames);
-  await upload("episode_transcript", { episode: record.id, site: record.site, mode: record.mode, closed_by: record.closedBy,
-                                       turns: record.end - record.opening + 1, transcript: redacted.messages,
+// The episode's complete conversation, redacted, once: when an episode with answers ends, or once
+// tracking is on again if it ended while tracking was off. `messages`: its turns start..end (the
+// record's own copy if not given). Returns whether it went.
+// NOTE: [design thought] the record's chain decides, on the record and the settings as they are
+// now: two callers at once (a resume and "Send them now") send it once, and nothing goes after a
+// new pause, an exclusion of the site or "delete all data"
+async function sendTranscript(id, messages = null) {
+  const settings = await getSettings();
+  let claimed = null;
+  await updateEpisode(id, (current) => {
+    const text = messages || current.messages;
+    if (!current.answers || current.transcriptSent || !text || current.status === "open" || trackingOff(settings) ||
+        textStays(current, settings)) return current;
+    claimed = { ...current, text };
+    return { ...current, transcriptSent: true };
+  });
+  if (!claimed) return false;
+  const { userTurns, replies } = Episodes.splitTurns(claimed.text);
+  const redacted = Redact.redactMessages(Episodes.episodeMessages(userTurns, replies, claimed.opening - claimed.start + 1,
+                                                                  claimed.end - claimed.start + 1), settings.redactNames);
+  await upload("episode_transcript", { episode: claimed.id, site: claimed.site, mode: claimed.mode, closed_by: claimed.closedBy,
+                                       turns: claimed.end - claimed.opening + 1, transcript: redacted.messages,
                                        redacted: redacted.counts }, settings);
-  await updateEpisode(record.id, (current) => ({ ...current, transcriptSent: true }));
+  return true;
 }
 
 // Tracking is on again (resumed, or the participant ID set): ended episodes whose complete
 // conversation waited are sent now; one whose check-in is done lets go of its text then.
 async function sendWaitingTranscripts() {
-  const settings = await getSettings();
-  if (trackingOff(settings)) return;
   for (const [, record] of await loadAll("episode:")) {
-    if (record.status === "open" || !record.answers || !record.messages || record.transcriptSent || textStays(record, settings)) continue;
-    await uploadTranscript(record, Episodes.splitTurns(record.messages), record.start, settings);
-    if (record.checkin?.doneAt) await updateEpisode(record.id, (current) => doneRecord({ ...current, status: "done" }));
+    if (!(await sendTranscript(record.id))) continue;
+    await updateEpisode(record.id, (current) => (current.checkin?.doneAt ? doneRecord({ ...current, status: "done" }) : current));
   }
 }
 
+// An ended episode on a site the participant excluded: its answers stay without the text; one
+// without answers goes, with its timers.
+async function forgetEnded(id) {
+  let deleted = false;
+  await updateEpisode(id, (current) => {
+    if (current.status === "open") return current;
+    if (current.answers) return { ...withoutText(current), keepText: true };
+    deleted = true;
+    return null;
+  });
+  if (deleted) for (const alarm of ["pause", "ask", "remind", "checkin"]) chrome.alarms.clear(`${alarm}|${id}`);
+}
+
 // The participant excluded a site: its episodes let go of their text now, not when their chats are
-// next seen. Open ones are closed by their chat (settle), ended ones without answers deleted, and
-// ended ones with answers keep the answers only.
+// next seen. Open ones are closed by their chat (settle, which also lets go of an episode that a
+// judgment in flight closes), ended ones without answers deleted, and ended ones with answers keep
+// the answers only.
 async function forgetExcluded() {
   const settings = await getSettings();
   for (const [, record] of await loadAll("episode:")) {
     if (!excluded(settings, record.url)) continue;
-    if (record.status === "open") { advance(record.chatKey); continue; }
-    const kept = await updateEpisode(record.id, (current) => (current.answers ? { ...withoutText(current), keepText: true } : null));
-    if (!kept) for (const alarm of ["ask", "remind", "checkin"]) chrome.alarms.clear(`${alarm}|${record.id}`);
+    if (record.status === "open") advance(record.chatKey);
+    else await forgetEnded(record.id);
   }
   for (const [name, snapshot] of await loadAll("snap:")) if (excluded(settings, snapshot.url)) advance(name.slice("snap:".length));
   await updateBadge();
@@ -573,11 +625,14 @@ async function episodeVanished(before, chat) {
 // ---------------- asking the participant ----------------
 // The panel's view of an episode: what it quotes and the earlier answers. `basedOn` (the number of
 // answers given so far) lets an answer from a page built before newer answers be recognised.
-function panelEpisode(record, stage) {
+// `text`: what happens to the episode's conversation (lib/questions.js, conversationGoes), for the
+// note under the questions.
+function panelEpisode(record, stage, settings) {
   return {
     id: record.id, site: record.site, openingText: record.openingText, stage, mode: record.mode, start: record.start, end: record.end,
     basedOn: record.versions, previous: record.answers, answered: record.versions > 0,
     confirmed: record.versions > 0 || Boolean(record.confirmedAt),        // combined mode: Yes in the confirm pop-up
+    text: Questions.conversationGoes(record, excluded(settings, record.url)),
   };
 }
 
@@ -619,7 +674,7 @@ async function refreshPanels(record, stage = null) {
   const tabs = record.panelTabs || [];
   if (!tabs.length) return [];
   const settings = await getSettings();
-  const message = { type: "refresh_panel", episode: panelEpisode(record, stage), settings: panelSettings(settings) };
+  const message = { type: "refresh_panel", episode: panelEpisode(record, stage, settings), settings: panelSettings(settings) };
   const refreshed = [];
   for (const tabId of tabs) {
     const response = await chrome.tabs.sendMessage(tabId, message).catch(() => null);
@@ -655,7 +710,7 @@ async function ask(id, rule, view = null) {
   const refreshed = await refreshPanels(record, page ? decision.stage : null);
   if (refreshed.length && (!page || tabId === null || refreshed.includes(tabId))) return true;
   const type = site !== record.site ? "offer_tab" : { page: "show_panel", update: "offer_update", confirm: "offer_confirm" }[decision.show];
-  let episode = panelEpisode(record, decision.stage);
+  let episode = panelEpisode(record, decision.stage, settings);
   // NOTE: [design thought] a page of another chat site gets no text of the conversation at all
   if (type === "offer_tab") episode = { id: episode.id, site: episode.site, stage: episode.stage, start: episode.start, end: episode.end, answered: episode.answered };
   let response = null;
@@ -831,17 +886,17 @@ async function onCheckinSubmitted(message) {
   const later = (await loadAll("episode:")).filter(([, other]) => (other.related || []).includes(record.id)).length;
   chrome.alarms.clear(`checkin|${record.id}`);
   // NOTE: [edge case callout] an episode whose complete conversation did not go yet (it ended while
-  // tracking was off) sends it now, before the record lets go of the text
-  if (record.messages && !record.transcriptSent && !trackingOff(settings) && !textStays(record, settings)) {
-    await uploadTranscript(record, Episodes.splitTurns(record.messages), record.start, settings);
-  }
-  // an episode from before 0.5: the conversation as the participant reviewed it on the check-in
-  // page (as 0.4 promised), redacted once more; `transcript_edited` says whether they deleted anything
-  const reviewed = record.reviewAtCheckin && !record.keepText && !record.heldAnswers && !excluded(settings, record.url) &&
-                   typeof message.transcript === "string";
+  // tracking was off) sends it now, before the record lets go of the text; while tracking is still
+  // off, the record keeps the text until it is on again (sendWaitingTranscripts)
+  await sendTranscript(record.id);
+  // an episode from 0.4: the conversation as the participant reviewed it on the check-in page (as
+  // 0.4 promised), redacted once more; `transcript_edited` says whether they deleted anything
+  const reviewed = Questions.conversationGoes(record, excluded(settings, record.url)) === "at_checkin" &&
+                   (record.messages || record.status === "open") && typeof message.transcript === "string";
   await updateEpisode(record.id, (current) => {
     const next = { ...current, checkin: { ...current.checkin, doneAt: Date.now() } };
-    return current.status === "open" ? next : doneRecord(next);       // an open one becomes done when it ends
+    const owed = current.answers && current.messages && !current.transcriptSent && !textStays(current, settings);
+    return current.status === "open" || owed ? next : doneRecord(next);      // an open one becomes done when it ends
   });
   await upload("checkin", { episode: record.id, site: record.site, mode: record.mode,
                             answers: redactAnswers(message.answers, settings.redactNames), related_later: later,
@@ -947,11 +1002,14 @@ async function updateBadge() {
 async function expireWaiting() {
   const settings = await getSettings();
   const limit = Date.now() - settings.followupDays * 24 * 3600 * 1000;
+  // NOTE: [edge case callout] 0.3 kept no start time, only the end (the update gives a 0.3 record
+  // its end as start, but the heartbeat a new worker sends at once can come before that)
+  const recent = (record) => (record.openedAt ?? record.closedAt) > limit;
   for (const [, record] of await loadAll("episode:")) {
-    if (record.openedAt > limit) continue;
+    if (recent(record)) continue;
     if (record.status === "pending") {
       let expired = false;
-      await updateEpisode(record.id, (current) => (current.status === "pending" ? ((expired = true), null) : current));
+      await updateEpisode(record.id, (current) => (current.status === "pending" && !recent(current) ? ((expired = true), null) : current));
       if (expired) await count("expired");
     } else if (record.finalDue) {
       await updateEpisode(record.id, (current) => ({ ...current, finalDue: false }));
@@ -989,14 +1047,36 @@ async function post(event, settings) {
   }
 }
 
+// An event waiting in the queue, as it may go now: the participant may have marked its episode as
+// not advice, excluded its site or paused tracking since it was queued. Returns the event to post,
+// "wait" (a conversation waits while tracking is off), or null (it does not go).
+async function queuedEvent(event) {
+  const settings = await getSettings();
+  if (!event.payload.episode || event.type === "not_advice") return event;
+  const record = await load(`episode:${event.payload.episode}`);
+  if (!record || record.status === "removed") return null;
+  if (event.type === "episode_transcript") return textStays(record, settings) ? null : trackingOff(settings) ? "wait" : event;
+  // answers go, without the conversation once the participant excluded its site (a conversation
+  // already on its way otherwise goes as it was sent: with answers, or reviewed at a 0.4 check-in,
+  // or chosen to be shared in 0.3)
+  if (event.payload.transcript && excluded(settings, record.url)) {
+    const { transcript_edited, ...payload } = event.payload;
+    return { ...event, payload: { ...payload, transcript: null, redacted: null } };
+  }
+  return event;
+}
+
 async function flushQueue() {
   const settings = await getSettings();
   const started = generation;
   await serialized("queue", async () => {
     const remaining = [];
-    for (const event of (await load("queue")) || []) {
+    for (const queued of (await load("queue")) || []) {
       if (started !== generation) return;            // "delete all data" meanwhile: nothing more goes out
-      if (!(await post(event, settings))) remaining.push(event);
+      const event = await queuedEvent(queued);
+      // (an event that waits, or could not go, stays as it may go now: without a conversation that stays)
+      if (event === "wait") remaining.push(queued);
+      else if (event && !(await post(event, settings))) remaining.push(event);
     }
     if (started !== generation) return;
     await save("queue", remaining);
@@ -1090,7 +1170,8 @@ async function onHeld(message) {
     if (message.send) await save("queue", [...((await load("queue")) || []), ...((await load("held")) || [])]);
     await remove("held");
   });
-  // their episodes' conversations go too (from now on, as for every episode), or never
+  // their episodes keep their way of sending the conversation (episodes from 0.4: after a review at
+  // the check-in), or never send it
   for (const [, record] of await loadAll("episode:")) {
     if (!record.heldAnswers) continue;
     await updateEpisode(record.id, ({ heldAnswers, ...current }) => (message.send ? current : { ...withoutText(current), keepText: true }));
@@ -1103,11 +1184,18 @@ async function onHeld(message) {
 // before now are ignored, and open chat pages forget which of their turns were sent.
 async function deleteAll() {
   generation += 1;
-  deletingSince = Date.now();
+  // NOTE: [edge case callout] until every open chat page has forgotten the turns sent on it, a
+  // snapshot from it still lists them: none is taken in meanwhile (a page that does not answer
+  // within 2 s has no content script, or is cut off from this extension)
+  deletingSince = Infinity;
   const settings = await load("settings"), heartbeatAt = await load("heartbeatAt");
   await chrome.storage.local.clear();
-  await chrome.storage.local.set({ ...(settings ? { settings } : {}), ...(heartbeatAt ? { heartbeatAt } : {}), deletedAt: deletingSince });
-  for (const tab of await chrome.tabs.query({})) chrome.tabs.sendMessage(tab.id, { type: "forget" }).catch(() => {});
+  await chrome.storage.local.set({ ...(settings ? { settings } : {}), ...(heartbeatAt ? { heartbeatAt } : {}) });
+  const forget = (tab) => Promise.race([chrome.tabs.sendMessage(tab.id, { type: "forget" }).catch(() => {}),
+                                        new Promise((resolve) => setTimeout(resolve, 2000))]);
+  await Promise.all((await chrome.tabs.query({})).map(forget));
+  deletingSince = Date.now();
+  await save("deletedAt", deletingSince);
   await chrome.alarms.clearAll();
   await keepHeartbeatAlarm();
   await updateBadge();
@@ -1121,7 +1209,8 @@ function openCheckin(query) {
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   // the two messages whose callers wait for an answer
   if (message.type === "panel_episode") {
-    load(`episode:${message.id}`).then((record) => sendResponse({ episode: record ? panelEpisode(record, message.stage) : null }));
+    Promise.all([load(`episode:${message.id}`), getSettings()])
+      .then(([record, settings]) => sendResponse({ episode: record ? panelEpisode(record, message.stage, settings) : null }));
     return true;
   }
   if (message.type === "delete_all") {
@@ -1212,8 +1301,14 @@ chrome.runtime.onInstalled.addListener(async (details) => {
   // - "Hold my answers on this computer" is gone, but what it held is not sent without asking: it
   //   waits under "held", with the episodes it belongs to, and the settings page (opened now)
   //   offers to send or delete it;
-  // - an episode from before 0.5 was to send its conversation only after a review at its check-in:
-  //   the check-in page still offers that review for it, and nothing goes on its own before
+  // - an episode from 0.4 was to send its conversation only after a review at its check-in: the
+  //   check-in page still offers that review for it, and nothing goes on its own before
+  // - an episode that 0.3 (main) recorded had its own choice of what to share, made when it was
+  //   rated: its text is never sent now (what 0.3 queued or held goes as the participant chose
+  //   then). 0.3 kept no start time and no answer count: its end stands for the start (the
+  //   check-in date, the expiry of a question; expireWaiting also reads it so). An episode still
+  //   going on at the update had no record yet: it gets one as a 0.5 episode, whose note says that
+  //   the conversation goes with the answers
   if (details.reason === "update" && /^0\.[0-4]\./.test(details.previousVersion || "")) {
     const held = settings.localOnly ? (await load("queue")) || [] : [];
     if (settings.localOnly) {
@@ -1224,7 +1319,13 @@ chrome.runtime.onInstalled.addListener(async (details) => {
     }
     const heldEpisodes = new Set(held.map((event) => event.payload.episode).filter(Boolean));
     for (const [, record] of await loadAll("episode:")) {
-      await updateEpisode(record.id, (current) => ({ ...current, reviewAtCheckin: true, ...(heldEpisodes.has(record.id) ? { heldAnswers: true } : {}) }));
+      await updateEpisode(record.id, (current) => {
+        if (!current.mode) {           // 0.3 (its answers are in `rating`)
+          return { ...current, keepText: true, openedAt: current.openedAt ?? current.closedAt ?? Date.now(),
+                   answers: current.answers ?? current.rating ?? null, versions: current.versions ?? (current.rating ? 1 : 0) };
+        }
+        return { ...current, reviewAtCheckin: true, ...(heldEpisodes.has(record.id) ? { heldAnswers: true } : {}) };
+      });
     }
   }
   const wasHolding = Boolean(settings.localOnly);
@@ -1244,7 +1345,9 @@ chrome.storage.onChanged.addListener((changes, area) => {
   const differs = (field) => JSON.stringify(before[field]) !== JSON.stringify(after[field]);
   if (["participantId", "paused", "excludedHosts", "serverUrl", "studyKey"].some(differs)) statusChanged();
   if (differs("excludedHosts")) forgetExcluded();
-  if (trackingOff({ ...DEFAULT_SETTINGS, ...before }) && !trackingOff({ ...DEFAULT_SETTINGS, ...after })) sendWaitingTranscripts();
+  if (trackingOff({ ...DEFAULT_SETTINGS, ...before }) && !trackingOff({ ...DEFAULT_SETTINGS, ...after })) {
+    sendWaitingTranscripts().then(flushQueue);         // the conversations that waited, also in the queue
+  }
 });
 // Chrome's site access for the extension changed (chrome://extensions -> Site access)
 chrome.permissions.onAdded.addListener(statusChanged);

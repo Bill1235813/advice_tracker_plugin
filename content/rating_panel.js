@@ -61,6 +61,13 @@
     .offer .left { font-size: 11.5px; color: #647084; margin-top: 6px; }
   `;
   const waiting = [];            // pages asked for while another one was open
+  // NOTE: [edge case callout] the extension was updated or reloaded while a page or pop-up was open:
+  // nothing can be sent from it any more, so it says so instead of vanishing with the answer.
+  // Reloading the page does not bring it back; questions that still wait for an answer are listed
+  // under the extension icon (a confirm question also comes back with the ratings page, an update
+  // offer when the conversation goes on).
+  const UPDATED = "Advice Tracker was updated meanwhile, so this could not be sent. Please reload this page. " +
+                  "Questions that still wait for an answer are listed under the Advice Tracker icon → <b>Open questions &amp; check-ins</b>.";
 
   function styled(host) {
     const shadow = host.attachShadow({ mode: "open" });
@@ -165,7 +172,7 @@
             <div class="actions"><button class="primary" id="submit">${answered ? "Save" : "Submit"}</button></div>
           </div>
           <div class="note">${answered ? "Your earlier answers are filled in." : `About 5 to 10 minutes now, and a short check-in in ${settings.followupDays} days.`}
-            Your answers are sent with this conversation, from the message above on, with names and other personal details removed.</div>
+            ${Questions.escape(Questions.CONVERSATION_NOTES[episode.text] || Questions.CONVERSATION_NOTES.with_answers)}</div>
         </div>
       </div>`;
     Questions.fill(shadow, questions, previous);
@@ -200,11 +207,8 @@
       return true;
     };
     const finish = async (message) => {
-      // NOTE: [edge case callout] the extension was updated or reloaded while this page was open:
-      // nothing can be sent from it any more, so it says so instead of vanishing with the answers
       if (message && !chrome.runtime?.id) {
-        shadow.querySelector(".body").innerHTML = '<p class="done">Advice Tracker was updated meanwhile, so these answers ' +
-          "could not be sent. Please reload this page; the questions come again.</p>";
+        shadow.querySelector(".body").innerHTML = `<p class="done">${UPDATED}</p>`;
         return;
       }
       host.remove();
@@ -224,6 +228,7 @@
     byId("close").onclick = () => finish({ type: "rating_closed", stage: current.stage });
     byId("yes").onclick = () => { byId("confirm").hidden = true; byId("form").hidden = false; };
     byId("no").onclick = () => {
+      if (!chrome.runtime?.id) { shadow.querySelector(".body").innerHTML = `<p class="done">${UPDATED}</p>`; return; }
       send({ type: "not_advice", id: current.id });
       host.update = () => true;          // nothing more to show about this episode
       shadow.querySelector(".body").innerHTML = '<p class="done">Thank you. This conversation was removed from the study.</p>';
@@ -271,6 +276,10 @@
     }, 1000);
     const finish = (answer) => {
       clearInterval(timer);
+      if (!chrome.runtime?.id && ["yes", "no"].includes(answer)) {
+        shadow.querySelector(".offer").innerHTML = `<b>Advice Tracker</b> (research study)<br>${UPDATED}`;
+        return;
+      }
       host.remove();
       send({ type: reply, id: episode.id, answer });
       if (answer === "yes") onYes();
