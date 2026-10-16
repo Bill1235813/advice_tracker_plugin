@@ -5,16 +5,44 @@ A Chrome extension used in a university research study on how people ask AI chat
 afterwards. When part of a conversation looks like you asked the AI for advice about your own
 situation, the extension asks whether you really asked for advice, and then a few questions about
 the advice (about 5 to 10 minutes; when it asks is explained below). Two weeks later it asks how
-things went. Your answers stay on your computer until you press **Submit**. The conversation itself
-stays on your computer until that two-week check-in, where you see it with personal details already
-removed, can delete anything else, and then submit it.
+things went. Your answers stay on your computer until you press **Submit**; they are then sent
+together with that advice conversation (your messages and the AI's replies, from your message that
+asked for advice on), after names, e-mail addresses, phone numbers and similar details were removed
+on your computer.
 
 This folder is the extension itself, so it can be loaded straight into Chrome. A Chrome Web Store
 version (one-click install) is in preparation; until then, follow the steps below.
 
 **How it works, in detail:** [`docs/advice-tracker-design.pdf`](docs/advice-tracker-design.pdf).
 
-## What's new in version 0.4.2 (dev branch)
+## What's new in version 0.5.0 (dev branch)
+
+- **Reading the chat pages, fixed for all five sites.** ChatGPT's new page layout is read again
+  (it captured nothing before). Only the messages themselves are kept: no "thinking" summaries or
+  timers ("Worked for 13s"), no hidden screen-reader labels ("You said", "Gemini said"), no
+  repeated copies of your message, no website icons recorded as images. Perplexity's questions are
+  captured again.
+- **The conversation is sent with your answers.** When you submit answers about an advice
+  conversation, that conversation (your messages and the AI's replies, from your message that asked
+  for advice on) is sent with them, with personal details removed automatically on your computer
+  first; once more, complete, when the conversation ends. The two-week check-in no longer shows it
+  for review (except for conversations from before version 0.5, which were promised that review).
+  The setting "Hold my answers on this computer" is gone: if you had ticked it, the answers it held
+  stay on your computer until you choose, on the settings page (it opens after the update), to send
+  or delete them.
+- **Nothing is captured** before you enter your participant ID, while tracking is paused, or on a
+  site you excluded; messages you send then are never processed, not even later.
+- **No skipping.** The questions panel has no ✕ until you have answered once; you can still put it
+  off with "later (1 h)", or answer "No" if you did not ask for advice (this removes the
+  conversation from the study).
+- **The study team sees whether tracking is on**: twice a day, and whenever it changes, the
+  extension reports whether tracking is paused and on which of the five sites it can capture (a
+  site you excluded in the settings, or whose access you withheld in Chrome, does not count). When
+  the extension is removed, Chrome opens a page of the study server that records it.
+- "Show captured messages on this tab" (popup) now counts all your captured messages in the
+  conversation, also after you went to another chat and came back.
+
+## What's new in version 0.4.2
 
 - **A fourth way of asking, *Combined***, chosen in the settings like the other three:
   - Right after the assistant's first answer to an advice message, a small pop-up asks only
@@ -68,7 +96,7 @@ version (one-click install) is in preparation; until then, follow the steps belo
 
 ## What you need
 
-- Google Chrome on a computer or laptop (version 116 or newer; Edge and Brave also work).
+- Google Chrome on a computer or laptop (version 121 or newer, from January 2024; Edge and Brave also work).
 - An internet connection.
 - Your **Participant ID** from the study e-mail.
 
@@ -112,8 +140,8 @@ extension loaded this way.
 3. A small **Quick check-in** panel appears at the bottom right of the chat page. The panel
    quotes your request and asks **"Did you ask for advice here?"** (in *Combined* mode only if you
    did not answer Yes in the pop-up).
-4. Click **Yes**, answer all the questions (each one is required), and press **Submit**. Only your
-   answers are sent; the conversation waits on your computer for the two-week check-in.
+4. Click **Yes**, answer all the questions (each one is required), and press **Submit**. Your
+   answers are sent with the conversation, after personal details were removed on your computer.
 5. Click the extension icon: *Advice conversations found* shows 1. A chat with only a factual
    question ("What is the capital of Peru?") should **not** trigger the panel.
 
@@ -129,9 +157,9 @@ button.
 
 - It works only on the five chat sites above and reads nothing else (no browsing history, no
   passwords, no other websites).
-- **Only the messages you send while the extension is running are processed.** Opening an old
-  chat from the sidebar never sends anything; if you continue an old chat, only your new messages
-  are checked.
+- **Only the messages you send while tracking is on are processed** (your participant ID is set,
+  tracking is not paused, and the site is not excluded). Opening an old chat from the sidebar never
+  sends anything; if you continue an old chat, only your new messages are checked.
 - **To find advice conversations**, each message you send is checked by the study's own AI model,
   which runs on university computers (no commercial AI service sees your messages). For this
   check the extension sends your new message, your earlier messages in the same part of the
@@ -142,15 +170,23 @@ button.
   `[file: its name]`; the extension never reads what is inside them.
 - On your computer, a conversation's text is kept only while it is being checked; for an advice
   conversation you answer questions about, until you submit its two-week check-in. Conversations
-  that are not advice, that you mark as not advice, or whose questions you skip are deleted.
-- Your answers are sent when you press Submit. The conversation text is sent once, with the
-  two-week check-in, after you have reviewed it there (personal details are removed first, and
-  you can delete anything else). Twice a day the extension sends a heartbeat with counts only
-  (found / rated / skipped).
+  that are not advice, or that you mark as not advice, are deleted, and their text is never sent.
+- Your answers are sent when you press Submit, together with the advice conversation they are
+  about (your messages and the AI's replies, from your message that asked for advice on; earlier
+  messages of the chat are not sent); the complete conversation is sent once more when it ends (if
+  tracking is paused then, once it is on again; never if you exclude the site).
+  Names, e-mail addresses, phone numbers, web and street addresses, long numbers and similar
+  details are replaced with placeholders such as `[NAME]` on your computer before anything is sent;
+  add the names that matter most to you in the settings.
+- Twice a day the extension sends a heartbeat with counts (found / rated / not advice) and whether
+  tracking is on: paused or not, and on which of the five sites it can capture. A change of these
+  is reported when it happens, and removing the extension is reported too. The study team uses
+  this to know on which days the extension was tracking (see the study e-mail for what this means
+  for payment).
 - Settings page (icon → ⋮ → Options): **pause** tracking, **exclude sites**, list **names to
-  remove** from stored conversations, change how long a conversation must be quiet to count as
-  finished, **export** or **delete all** data on this computer.
-- Skipping a panel ("later", "✕", or "No") never affects your participation.
+  remove** from conversations before they are sent, change how long a conversation must be quiet
+  to count as finished, **export** or **delete all** data on this computer.
+- Putting a panel off ("later") or answering "No" never affects your participation.
 
 Full privacy policy: `store/privacy_policy.html` in the main project, or the link in the study
 e-mail.
@@ -162,9 +198,11 @@ e-mail.
 - **No panel appears** after an advice conversation: the panel comes when the rating mode says so
   (see "What's new in version 0.4" and, for *Combined*, 0.4.2; the popup under the extension icon
   shows the mode), and you need to be online. Then click the icon → *Show captured messages on
-  this tab*: it lists the messages the extension sees and how many of your messages it saw you
-  send. If the list is empty, the chat site changed its page layout; if it says 0 messages were
-  sent although you typed some, tell the study team which site (both are quick fixes).
+  this tab*: it lists the messages the extension sees and how many of your messages in this
+  conversation it captured. If it says "No messages found on this page", the chat site changed its
+  page layout; if it counts 0 captured messages although you sent some, tell the study team which
+  site (both are quick fixes). If the popup says "No access to ...", allow the site again under
+  `chrome://extensions` → Advice Tracker → Details → Site access.
 - **"No participant ID set"** in the popup: open the settings page and save your ID.
 - **Chrome removed the extension** after an update: repeat "Load unpacked" from the same folder.
 - **Anything else**: e-mail the study team with what you did and what you saw; the
@@ -182,16 +220,27 @@ e-mail.
 
 ## For reviewers and developers
 
-- `manifest.json` (Manifest V3, version 0.4.2): permissions `storage`, `alarms`, `notifications`,
+- `manifest.json` (Manifest V3, version 0.5.0): permissions `storage`, `alarms`, `notifications`,
   and host permissions for the five chat sites (plus `localhost` for the mock test page); no
   remote code.
-- `content/capture.js` reads the conversation from the page and notes which user messages were
-  sent there; `background.js` judges each new message through the study server, one at a time,
+- `content/capture.js` reads the conversation from the page (per site, `lib/sites.js` names the
+  message elements, the parts that hold their text, and the noise inside them: thinking blocks,
+  screen-reader labels, buttons) and notes which user messages were sent there; `background.js`
+  judges each new message through the study server, one at a time,
   following the state machine in `lib/episodes.js`, and shows `content/rating_panel.js` (or its small
   update and confirm pop-ups) when the rating mode in `lib/modes.js` says so; `lib/redact.js` removes
   personal details from everything sent; `ui/checkin.html` holds pending questions and the two-week
   check-in; `lib/questions.js` has every question (all required); `config.js` holds the server URL
   and study key.
+- Uploads (`POST /events`): `episode_rating` (answers + the redacted transcript from the opening
+  turn through the answered one), `episode_transcript` (the complete redacted transcript from the
+  opening turn, when an answered episode ends, or when tracking is on again if it ended while
+  tracking was off), `checkin` (for an episode from before 0.5 also the conversation as reviewed
+  there, `transcript` and `transcript_edited`, as 0.4 sent it), `prompt`, `not_advice`
+  (`had_answers`: answers sent before belong to a removed episode), `heartbeat` and `status` (tracking status: `tracking`, `paused`,
+  `paused_at`, `listening_sites`, `excluded_sites`, `sites_without_access`). On removal Chrome
+  opens `<server>/uninstalled?participant_id=...&key=...`, which the study server must answer (it
+  records an `uninstalled` event).
 - The design document is in `docs/`. The study server, the GPU worker, the tests (unit tests, a
   headless-browser end-to-end test, a smoke test) and the Web Store package live in the
   `plugin/` folder of the main research project.

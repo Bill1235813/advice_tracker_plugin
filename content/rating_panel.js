@@ -2,8 +2,9 @@
 // rating mode asks for answers (lib/modes.js). Unless the participant confirmed the episode
 // before, step 1 asks "Did you ask for advice here?", quoting the turn the judge flagged (No = a
 // classifier error). Step 2 asks the three ratings and five details (all required), with the
-// earlier answers filled in when they are being updated. The conversation itself is not shown here:
-// the participant reviews it at the day-14 check-in, before it is stored. A second, smaller
+// earlier answers filled in when they are being updated; the answers are uploaded with the
+// conversation they are about, redacted (background.js). A conversation cannot be skipped: without
+// answers the panel has no ✕, only "later (1 h)" and No. A second, smaller
 // pop-up offers that update ("Update your ratings?") and disappears by itself; a third one, with
 // no conversation text, asks about an episode from another chat site and answers in a tab; a
 // fourth one (combined mode) asks only step 1, quoting the request, right after the first advice
@@ -72,8 +73,10 @@
     return shadow;
   }
 
+  // NOTE: [edge case callout] after the extension is reloaded or updated, the scripts already in the
+  // page are cut off from it (chrome.runtime.id is gone and sending throws): nothing is sent then
   function send(message) {
-    chrome.runtime.sendMessage(message).catch(() => {});
+    if (chrome.runtime?.id) chrome.runtime.sendMessage(message).catch(() => {});
   }
 
   // the request as it is quoted
@@ -151,7 +154,7 @@
           <button id="tab" class="tab" title="If typing here does not work, answer in a separate tab">open in a tab</button>
           <button id="min">minimize</button>
           <button id="later" title="Asks again in an hour; also listed under the extension icon" ${answered ? "hidden" : ""}>later (1 h)</button>
-          <button id="close" title="${answered ? "Close; your earlier answers stay" : "Skip this conversation"}">✕</button></div>
+          <button id="close" title="Close; your earlier answers stay" ${answered ? "" : "hidden"}>✕</button></div>
         <div class="body">
           <div class="why"><span id="intro">${Questions.escape(INTRO[episode.stage] || INTRO.end)}</span> <span class="site">(${Questions.escape(episode.site)})</span></div>
           <div class="quote">${Questions.escape(opening)}</div>
@@ -161,13 +164,14 @@
             ${Questions.render(questions)}
             <div class="actions"><button class="primary" id="submit">${answered ? "Save" : "Submit"}</button></div>
           </div>
-          <div class="note">${answered ? "Your earlier answers are filled in." : `About 5 to 10 minutes now, and a short check-in in ${settings.followupDays} days.`}</div>
+          <div class="note">${answered ? "Your earlier answers are filled in." : `About 5 to 10 minutes now, and a short check-in in ${settings.followupDays} days.`}
+            Your answers are sent with this conversation, from the message above on, with names and other personal details removed.</div>
         </div>
       </div>`;
     Questions.fill(shadow, questions, previous);
     document.body.appendChild(host);
     // the background counts a page as asked only once it is really on the screen
-    send({ type: "rating_shown", id: episode.id, end: episode.end });
+    send({ type: "rating_shown", id: episode.id, start: episode.start, end: episode.end });
 
     // NOTE: [edge case callout] chat apps listen for keystrokes on the whole document (claude.ai
     // routes them to its composer and swallows them), which left this panel's text boxes dead
@@ -192,12 +196,20 @@
       host.dataset.stage = stage;
       host.dataset.end = current.end;              // the episode's last turn this page knows (tests read it)
       byId("intro").textContent = INTRO[stage] || INTRO.end;
-      if (moved) send({ type: "rating_shown", id: current.id, end: current.end });
+      if (moved) send({ type: "rating_shown", id: current.id, start: current.start, end: current.end });
       return true;
     };
     const finish = async (message) => {
+      // NOTE: [edge case callout] the extension was updated or reloaded while this page was open:
+      // nothing can be sent from it any more, so it says so instead of vanishing with the answers
+      if (message && !chrome.runtime?.id) {
+        shadow.querySelector(".body").innerHTML = '<p class="done">Advice Tracker was updated meanwhile, so these answers ' +
+          "could not be sent. Please reload this page; the questions come again.</p>";
+        return;
+      }
       host.remove();
-      if (message) send({ ...message, id: current.id });
+      // a page that goes without an answer ("No", or dealt with in another tab): pop-ups that waited for it come
+      send(message ? { ...message, id: current.id } : { type: "panel_gone", id: current.id });
       // the next page waiting behind this one, as it is now (skipping episodes that are gone)
       for (let next = waiting.shift(); next; next = waiting.shift()) {
         const fresh = await latest(next.episode);
@@ -208,8 +220,8 @@
     byId("tab").onclick = () => finish({ type: "open_rating_tab", stage: current.stage });
     byId("min").onclick = () => panel.classList.toggle("minimized");
     byId("later").onclick = () => finish({ type: "rating_snoozed" });
-    // ✕ skips an episode that has no answers yet; with earlier answers it only closes the panel
-    byId("close").onclick = () => finish({ type: answered ? "rating_closed" : "rating_dismissed", stage: current.stage });
+    // ✕ (only with earlier answers) closes the panel; the answers stand
+    byId("close").onclick = () => finish({ type: "rating_closed", stage: current.stage });
     byId("yes").onclick = () => { byId("confirm").hidden = true; byId("form").hidden = false; };
     byId("no").onclick = () => {
       send({ type: "not_advice", id: current.id });
@@ -220,7 +232,7 @@
     byId("submit").onclick = () => {
       const { answers, missing } = Questions.read(shadow, questions);
       if (missing.length) { alert("Please answer all the questions marked *."); return; }
-      finish({ type: "rating_submitted", stage: current.stage, end: current.end, basedOn: current.basedOn,
+      finish({ type: "rating_submitted", stage: current.stage, start: current.start, end: current.end, basedOn: current.basedOn,
                rating: { ...answers, ratedAt: Date.now() } });
     };
   }
@@ -246,7 +258,7 @@
     const markSeen = () => {
       if (seen || document.hidden) return;
       seen = true;
-      send({ type: "offer_seen", id: episode.id, end: episode.end, asked });
+      send({ type: "offer_seen", id: episode.id, start: episode.start, end: episode.end, asked });
     };
     // NOTE: [design thought] the countdown runs only while the page is visible: a pop-up on a tab
     // in the background would otherwise vanish before anyone could see it

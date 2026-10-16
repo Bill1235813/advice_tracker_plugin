@@ -6,24 +6,30 @@
 //   -> the participant is asked for ratings as the episode's rating mode says (lib/modes.js:
 //   frequent, switching, periodical or combined) -> check-in followupDays after the episode's first
 //   request.
-// Every text leaves the computer only after local redaction (lib/redact.js).
+// Every text leaves the computer only after local redaction (lib/redact.js): the episode's
+// conversation (the participant's messages and the assistant's replies) is uploaded with every set
+// of answers, and once more, complete, when an episode with answers ends.
 // Storage (chrome.storage.local):
 //   settings        participant id, server, rating mode, preferences (options page)
 //   snap:<chat>     the chat's latest messages, kept only while a turn is unjudged or an episode
 //                   is open, and deleted as soon as the chat is settled
 //   chat:<chat>     the chat's episode state: turn numbers and hashes, no text
+//   sent:<chat>     the ids (hashes) of the participant's messages captured in the chat, no text:
+//                   the popup's count, which stays when the page moves to another chat and back
 //   alias:<key>     a second key of a chat (a new chat's URL gains its id after the first turn)
 //   act:<chat>      when the participant last typed in the chat (pauses: periodical, combined modes)
 //   lastView        the conversation the participant looked at last (moves: switching, combined)
 //   episode:<id>    an episode from its first advice turn on: its mode, the answers given so far,
-//                   and its text until the day-14 check-in, where the participant reviews it and
-//                   it is uploaded (answers are uploaded at once, the conversation only then)
+//                   and its text from its end until the day-14 check-in
 //   queue, stats    uploads waiting for the network; counts for the heartbeat
+//   held            uploads that "Hold my answers on this computer" (before 0.5) held back: sent or
+//                   deleted only when the participant chooses so on the settings page
+//   heartbeatAt     when the last heartbeat was sent
 //   deletedAt       when "delete all data" last ran
-importScripts("config.js", "lib/episodes.js", "lib/modes.js", "lib/redact.js", "lib/similarity.js");
+importScripts("config.js", "lib/sites.js", "lib/episodes.js", "lib/modes.js", "lib/redact.js", "lib/similarity.js");
 
 const DEFAULT_SETTINGS = {
-  participantId: "", serverUrl: STUDY_CONFIG.serverUrl, studyKey: STUDY_CONFIG.studyKey, paused: false, localOnly: false,
+  participantId: "", serverUrl: STUDY_CONFIG.serverUrl, studyKey: STUDY_CONFIG.studyKey, paused: false, pausedAt: null,
   ratingMode: STUDY_CONFIG.ratingMode || "switching",     // "frequent" | "switching" | "periodical" | "combined"
   followupDays: 14,
   endQuietMinutes: 24 * 60,    // an episode also ends after this long without activity in its chat
@@ -35,7 +41,9 @@ const POLL_WAIT_S = 20;      // one long-poll for a label (Chrome stops a worker
 const RETRY_MINUTES = 2;     // after a failed judgment, or when the server cannot be reached
 const SNOOZE_MINUTES = 60;   // "later (1 h)"
 const ASK_WAIT_MINUTES = 5;  // a question about a reply waits at most this long for the reply to be complete
+const HEARTBEAT_MINUTES = 12 * 60;
 let generation = 0;          // "delete all data" bumps it; judging loops begun before stop writing
+let deletingSince = 0;       // when "delete all data" last began: snapshots taken before it are ignored
 
 // ---------------- storage helpers ----------------
 async function load(name) { return (await chrome.storage.local.get(name))[name]; }
@@ -46,7 +54,16 @@ async function loadAll(prefix) {
   const everything = await chrome.storage.local.get(null);
   return Object.entries(everything).filter(([name]) => name.startsWith(prefix));
 }
-const excluded = (settings, url) => settings.excludedHosts.includes(new URL(url).hostname);
+const excluded = (settings, url) => isExcluded(new URL(url).hostname, settings.excludedHosts);     // lib/sites.js
+// Nothing is captured before the participant set their study ID (it ties the data to their
+// consent), while tracking is paused, or on a site they excluded; nothing is judged or asked then.
+const trackingOff = (settings) => !settings.participantId || settings.paused;
+const notTracking = (settings, url) => trackingOff(settings) || excluded(settings, url);
+// An episode's conversation stays on the computer: its site is excluded, its answers were held by
+// "Hold my answers on this computer" (before 0.5) and wait for the participant's decision, the
+// participant deleted those (keepText), or it is from before 0.5, when the conversation was sent
+// only after a review at the check-in (reviewAtCheckin; the check-in page still offers it).
+const textStays = (record, settings) => Boolean(record.keepText || record.heldAnswers || record.reviewAtCheckin) || excluded(settings, record.url);
 
 // NOTE: [design thought] chrome.storage has no transactions, so read-modify-writes of the same
 // record go through a promise chain per record name: they run one after the other
@@ -76,7 +93,7 @@ function updateEpisode(id, change) {
 }
 
 // The conversation text a record holds: the episode's messages, from its end until its check-in
-// (the check-in shows them for review before they are uploaded).
+// (answers given after the episode ended are uploaded with them).
 function withoutText(record) {
   const { messages, ...rest } = record;
   return rest;
@@ -110,15 +127,17 @@ function renumberSent(shownMessages, merged, offset, sentIds) {
 }
 
 async function onSnapshot(message, sender) {
+  const started = generation;
+  const stale = () => started !== generation;      // "delete all data" happened meanwhile: nothing is written
   const settings = await getSettings();
-  if (settings.paused || excluded(settings, message.url)) return;
+  if (notTracking(settings, message.url)) return;
   // a snapshot taken before "delete all data" still lists the turns sent before it
-  if (message.capturedAt < ((await load("deletedAt")) || 0)) return;
+  if (message.capturedAt < Math.max(deletingSince, (await load("deletedAt")) || 0)) return;
   const key = await chatKey(message);
   const kept = await serialized(`snap:${key}`, async () => {
     const chat = await load(`chat:${key}`);
     // a chat in which nothing was ever sent while watched (a past chat, only opened) is not kept
-    if (!chat && !message.sent.length) return false;
+    if (stale() || (!chat && !message.sent.length)) return false;
     if (!chat) await save(`chat:${key}`, Episodes.newChat({ key, site: message.site, now: Date.now() }));
     const stored = await load(`snap:${key}`);
     let messages = message.messages, sent = message.sent;
@@ -128,6 +147,9 @@ async function onSnapshot(message, sender) {
       messages = merged.messages;
       if (messages !== message.messages) sent = renumberSent(message.messages, messages, merged.offset, message.sent);
     }
+    const captured = (await load(`sent:${key}`)) || [];
+    if (stale()) return false;
+    if (sent.some((id) => !captured.includes(id))) await save(`sent:${key}`, [...new Set([...captured, ...sent])]);
     const same = stored && JSON.stringify(stored.messages) === JSON.stringify(messages);
     await save(`snap:${key}`, {
       messages, url: message.url, site: message.site, tabId: sender.tab.id, settled: Boolean(message.settled),
@@ -137,7 +159,7 @@ async function onSnapshot(message, sender) {
     });
     return true;
   });
-  if (!kept) return;
+  if (!kept || stale()) return;
   advance(key);
   if (message.settled) await onSettled(key);
 }
@@ -157,7 +179,7 @@ async function onSettled(key) {
 // is a move to another conversation.
 async function onView(message, sender) {
   const settings = await getSettings();
-  if (settings.paused || excluded(settings, message.url)) return;
+  if (notTracking(settings, message.url)) return;
   const view = { key: await chatKey(message), tabId: sender.tab.id, site: message.site, at: Date.now() };
   await save("lastView", view);
   for (const [, record] of await loadAll("episode:")) {
@@ -169,7 +191,7 @@ async function onView(message, sender) {
 // pause.
 async function onActivity(message) {
   const settings = await getSettings();
-  if (settings.paused || excluded(settings, message.url)) return;
+  if (notTracking(settings, message.url)) return;
   const chat = await load(`chat:${await chatKey(message)}`);
   const record = chat?.episodeId && (await load(`episode:${chat.episodeId}`));
   if (record?.status !== "open" || !Modes.asksAtPauses(record.mode)) return;     // nothing else needs it
@@ -242,7 +264,7 @@ async function settle(key) {
     const before = chat;
     ({ chat, closed } = Episodes.sync(chat, userTurns, new Set(snapshot.sent)));
     chat = closed ? await closeEpisode(key, chat, closed, page) : await afterSync(before, chat, page, settings);
-    // "No" or skip on the open episode: it ends here, so its later turns go to the advice judge only
+    // "No" (not advice) on the open episode: it ends here, so its later turns go to the advice judge only
     if (chat.state === "episode" && (await load(`episode:${chat.episodeId}`))?.status === "removed") {
       ({ chat, closed } = Episodes.closeOpen(chat, "removed"));
       chat = await closeEpisode(key, chat, closed, page);
@@ -284,7 +306,7 @@ async function settle(key) {
 
     const job = Episodes.nextJob(chat, userTurns, replies);
     if (job) {
-      if (settings.paused) return;
+      if (trackingOff(settings)) return;
       const id = await submit(job, chat, settings);
       if (stale()) return;
       if (!id) { chrome.alarms.create(`judge|${key}`, { delayInMinutes: RETRY_MINUTES }); return; }
@@ -459,12 +481,15 @@ async function askIfAlreadyElsewhere(record, job) {
   return false;
 }
 
-// A closed episode keeps its answers, and its text until its check-in is done.
-function closedRecord(current, decision, closed, messages) {
+// A closed episode keeps its answers, and its text until its check-in is done, or (`waits`) until its
+// complete conversation could be sent (an episode on a site the participant then excluded keeps no
+// text: none of it leaves the computer any more).
+function closedRecord(current, decision, closed, messages, waits = false) {
   const { dueAsk, refused, ...rest } = current;
   const next = { ...rest, end: closed.end, closedAt: Date.now(), closedBy: closed.closedBy, status: decision.status,
                  finalDue: decision.finalDue };
-  if (next.status === "done" || next.checkin?.doneAt) return doneRecord(next);
+  if (closed.closedBy === "excluded") return { ...withoutText(next), keepText: true };
+  if ((next.status === "done" || next.checkin?.doneAt) && !waits) return doneRecord(next);
   return { ...next, messages };
 }
 
@@ -472,14 +497,64 @@ function closedRecord(current, decision, closed, messages) {
 async function episodeClosed(closed, page) {
   for (const alarm of ["pause", "ask"]) chrome.alarms.clear(`${alarm}|${closed.id}`);
   const messages = Episodes.episodeMessages(page.userTurns, page.replies, closed.start, closed.end);
+  const settings = await getSettings();
   let closedNow = false;
   const record = await updateEpisode(closed.id, (current) => {
     if (!["open", "removed"].includes(current.status)) return current;     // closed before (the note was replayed)
     closedNow = true;
+    // NOTE: [edge case callout] the snapshot that closed the episode can also have loaded older
+    // turns above (sync renumbered the chat): the record takes the closing's turn numbers first
+    const shift = closed.opening === undefined ? 0 : closed.opening - current.opening;
+    const moved = (turn) => (turn === null || turn === undefined ? turn : turn + shift);
+    current = { ...current, start: closed.start, opening: current.opening + shift, answeredEnd: moved(current.answeredEnd),
+                askedEnd: moved(current.askedEnd) };
     const decision = Modes.onClosed(current, closed.closedBy);
-    return decision.status === "delete" ? null : closedRecord(current, decision, closed, messages);
+    const waits = Boolean(current.answers) && trackingOff(settings);      // its complete conversation goes once tracking is on
+    return decision.status === "delete" ? null : closedRecord(current, decision, closed, messages, waits);
   });
   if (record && closedNow) await ask(record.id, "waitingPage");
+  // the complete conversation of an episode with answers (turns may have come after the last answers)
+  if (record?.answers && closedNow && !trackingOff(settings) && !textStays(record, settings)) {
+    await uploadTranscript(record, Episodes.splitTurns(messages), closed.start, settings);
+  }
+  await updateBadge();
+}
+
+// The episode's complete conversation from its opening (`turns`: user turns and replies, the first
+// one being turn `first` of the chat), redacted; the record notes that it was sent.
+async function uploadTranscript(record, turns, first, settings) {
+  const redacted = Redact.redactMessages(Episodes.episodeMessages(turns.userTurns, turns.replies, record.opening - first + 1,
+                                                                  record.end - first + 1), settings.redactNames);
+  await upload("episode_transcript", { episode: record.id, site: record.site, mode: record.mode, closed_by: record.closedBy,
+                                       turns: record.end - record.opening + 1, transcript: redacted.messages,
+                                       redacted: redacted.counts }, settings);
+  await updateEpisode(record.id, (current) => ({ ...current, transcriptSent: true }));
+}
+
+// Tracking is on again (resumed, or the participant ID set): ended episodes whose complete
+// conversation waited are sent now; one whose check-in is done lets go of its text then.
+async function sendWaitingTranscripts() {
+  const settings = await getSettings();
+  if (trackingOff(settings)) return;
+  for (const [, record] of await loadAll("episode:")) {
+    if (record.status === "open" || !record.answers || !record.messages || record.transcriptSent || textStays(record, settings)) continue;
+    await uploadTranscript(record, Episodes.splitTurns(record.messages), record.start, settings);
+    if (record.checkin?.doneAt) await updateEpisode(record.id, (current) => doneRecord({ ...current, status: "done" }));
+  }
+}
+
+// The participant excluded a site: its episodes let go of their text now, not when their chats are
+// next seen. Open ones are closed by their chat (settle), ended ones without answers deleted, and
+// ended ones with answers keep the answers only.
+async function forgetExcluded() {
+  const settings = await getSettings();
+  for (const [, record] of await loadAll("episode:")) {
+    if (!excluded(settings, record.url)) continue;
+    if (record.status === "open") { advance(record.chatKey); continue; }
+    const kept = await updateEpisode(record.id, (current) => (current.answers ? { ...withoutText(current), keepText: true } : null));
+    if (!kept) for (const alarm of ["ask", "remind", "checkin"]) chrome.alarms.clear(`${alarm}|${record.id}`);
+  }
+  for (const [name, snapshot] of await loadAll("snap:")) if (excluded(settings, snapshot.url)) advance(name.slice("snap:".length));
   await updateBadge();
 }
 
@@ -496,25 +571,45 @@ async function episodeVanished(before, chat) {
 }
 
 // ---------------- asking the participant ----------------
-// The panel's view of an episode: what it quotes, the conversation so far and the earlier answers.
-// `basedOn` (the number of answers given so far) lets an answer from a page built before newer
-// answers be recognised.
-async function panelEpisode(record, stage) {
-  let messages = record.messages;
-  if (!messages) {
-    const snapshot = await load(`snap:${record.chatKey}`);
-    const { userTurns, replies } = Episodes.splitTurns(snapshot?.messages || []);
-    messages = Episodes.episodeMessages(userTurns, replies, record.start, record.end);
-  }
+// The panel's view of an episode: what it quotes and the earlier answers. `basedOn` (the number of
+// answers given so far) lets an answer from a page built before newer answers be recognised.
+function panelEpisode(record, stage) {
   return {
     id: record.id, site: record.site, openingText: record.openingText, stage, mode: record.mode, start: record.start, end: record.end,
-    basedOn: record.versions, messages, previous: record.answers, answered: record.versions > 0,
+    basedOn: record.versions, previous: record.answers, answered: record.versions > 0,
     confirmed: record.versions > 0 || Boolean(record.confirmedAt),        // combined mode: Yes in the confirm pop-up
   };
 }
 
 function panelSettings(settings) {
-  return { redactNames: settings.redactNames, followupDays: settings.followupDays, updateSeconds: settings.updateSeconds };
+  return { followupDays: settings.followupDays, updateSeconds: settings.updateSeconds };
+}
+
+// The episode's conversation from its first advice turn (the opening) through turn `end`,
+// redacted for upload: {messages, counts}. An open episode is read from its chat's latest
+// snapshot, an ended one from its record (null once the record no longer holds it).
+// NOTE: [design thought] the turns before the opening stay out: they were judged not to ask for
+// advice, and can be anything (a work document, another task), with no review before upload
+async function transcript(record, end, settings) {
+  end = Math.min(end, record.end);
+  if (end < record.opening || textStays(record, settings)) return null;
+  let messages = null;
+  if (record.status === "open") {
+    const chat = await load(`chat:${record.chatKey}`);
+    const { userTurns, replies } = Episodes.splitTurns((await load(`snap:${record.chatKey}`))?.messages || []);
+    // NOTE: [edge case callout] the page may have loaded older turns above since the chat was last
+    // brought in line with it (its judging loop waits for a label meanwhile): the episode's turns
+    // then sit further down in the snapshot. If its known turns are not there unchanged, nothing
+    // is sent rather than other turns.
+    const shift = Episodes.findOffset(chat?.ids || [], Episodes.turnIds(userTurns));
+    if (shift < 0) return null;
+    messages = Episodes.episodeMessages(userTurns, replies, record.opening + shift, end + shift);
+  } else if (record.messages) {
+    // the record holds turns start..end only: its turn k is turn start + k - 1 of the chat
+    const { userTurns, replies } = Episodes.splitTurns(record.messages);
+    messages = Episodes.episodeMessages(userTurns, replies, record.opening - record.start + 1, end - record.start + 1);
+  }
+  return messages && Redact.redactMessages(messages, settings.redactNames);
 }
 
 // Ratings pages of the episode that are open (in any tab) take its newer state: more turns, the
@@ -524,7 +619,7 @@ async function refreshPanels(record, stage = null) {
   const tabs = record.panelTabs || [];
   if (!tabs.length) return [];
   const settings = await getSettings();
-  const message = { type: "refresh_panel", episode: await panelEpisode(record, stage), settings: panelSettings(settings) };
+  const message = { type: "refresh_panel", episode: panelEpisode(record, stage), settings: panelSettings(settings) };
   const refreshed = [];
   for (const tabId of tabs) {
     const response = await chrome.tabs.sendMessage(tabId, message).catch(() => null);
@@ -550,7 +645,7 @@ async function ask(id, rule, view = null) {
   const settings = await getSettings();
   const record = await load(`episode:${id}`);
   const decision = record && Modes[rule](record, Date.now());
-  if (!decision || settings.paused || excluded(settings, record.url)) return false;
+  if (!decision || trackingOff(settings) || excluded(settings, record.url)) return false;
   const page = decision.show === "page";
   const snapshot = await load(`snap:${record.chatKey}`);
   const tabId = (view ? view.tabId : snapshot?.tabId) ?? null;
@@ -560,9 +655,9 @@ async function ask(id, rule, view = null) {
   const refreshed = await refreshPanels(record, page ? decision.stage : null);
   if (refreshed.length && (!page || tabId === null || refreshed.includes(tabId))) return true;
   const type = site !== record.site ? "offer_tab" : { page: "show_panel", update: "offer_update", confirm: "offer_confirm" }[decision.show];
-  let episode = await panelEpisode(record, decision.stage);
+  let episode = panelEpisode(record, decision.stage);
   // NOTE: [design thought] a page of another chat site gets no text of the conversation at all
-  if (type === "offer_tab") episode = { id: episode.id, site: episode.site, stage: episode.stage, end: episode.end, answered: episode.answered };
+  if (type === "offer_tab") episode = { id: episode.id, site: episode.site, stage: episode.stage, start: episode.start, end: episode.end, answered: episode.answered };
   let response = null;
   if (tabId !== null) {
     try {
@@ -641,9 +736,16 @@ async function offerRefused(tabId) {
 }
 
 // ---------------- answers from the panel and the check-in page ----------------
+// The episode's last turn a page (or pop-up) knew, in the record's numbering: the page sends the
+// episode's first and last turn as it knew them, and older turns loaded above since renumber the
+// record (afterSync) but not the page; the distance from the first turn stays.
+function pageEnd(record, message) {
+  return message.start === undefined ? message.end : record.start + message.end - message.start;
+}
+
 // A ratings page is on the screen (it may also be a newer state of one already shown).
 async function onPanelShown(message, sender) {
-  await updateEpisode(message.id, (current) => ({ ...current, askedEnd: Math.max(current.askedEnd ?? 0, message.end),
+  await updateEpisode(message.id, (current) => ({ ...current, askedEnd: Math.max(current.askedEnd ?? 0, pageEnd(current, message)),
                                                   panelTabs: [...new Set([...(current.panelTabs || []), sender.tab.id])] }));
   await updateBadge();
 }
@@ -653,7 +755,7 @@ async function onPanelShown(message, sender) {
 async function onOfferSeen(message) {
   await updateEpisode(message.id, (current) => (message.asked === "offer_confirm"
     ? { ...current, confirmAskedAt: current.confirmAskedAt ?? Date.now() }
-    : { ...current, askedEnd: Math.max(current.askedEnd ?? 0, message.end) }));
+    : { ...current, askedEnd: Math.max(current.askedEnd ?? 0, pageEnd(current, message)) }));
   await count(`asked_${message.asked}`);
   await updateBadge();
 }
@@ -688,7 +790,7 @@ async function onRatingSubmitted(message) {
     // a page shown while the episode was open but answered after it ended answers the end's question
     if (current.finalDue) stage = "final";
     else if (current.status !== "open" && ["first", "temp"].includes(stage)) stage = Modes.closingStage(current);
-    const answeredEnd = message.end ?? current.end;
+    const answeredEnd = message.end === undefined ? current.end : pageEnd(current, message);
     const { dueAsk, ...rest } = current;
     let next = { ...rest, answers: message.rating, versions: current.versions + 1, answeredEnd,
                  askedEnd: Math.max(current.askedEnd ?? 0, answeredEnd), finalDue: false, snoozedUntil: null, remindAt: null };
@@ -706,13 +808,15 @@ async function onRatingSubmitted(message) {
     await updateEpisode(record.id, (current) => ({ ...current, checkin: { dueAt, doneAt: null } }));
     chrome.alarms.create(`checkin|${record.id}`, { when: dueAt });
   }
-  // NOTE: [design thought] answers only: the conversation is uploaded with the check-in, after the
-  // participant has reviewed it there
+  // NOTE: [design thought] the answers go with the conversation they are about (turns
+  // opening..answeredEnd), both redacted on this computer
+  const conversation = await transcript(record, record.answeredEnd, settings);
   await upload("episode_rating", {
     episode: record.id, site: record.site, mode: record.mode, stage, version: record.versions,
     turns: record.answeredEnd - record.start + 1, opening_turn: record.opening - record.start + 1, open: record.status === "open",
     closed_by: record.closedBy, opened_at: record.openedAt, closed_at: record.closedAt,
     rating: redactAnswers(message.rating, settings.redactNames), related_earlier: record.related.length,
+    transcript: conversation?.messages ?? null, redacted: conversation?.counts ?? null,
   }, settings);
   await count(record.versions === 1 ? "rated" : "updated");
   await updateBadge();
@@ -726,30 +830,37 @@ async function onCheckinSubmitted(message) {
   if (!record?.checkin || record.checkin.doneAt) return;
   const later = (await loadAll("episode:")).filter(([, other]) => (other.related || []).includes(record.id)).length;
   chrome.alarms.clear(`checkin|${record.id}`);
+  // NOTE: [edge case callout] an episode whose complete conversation did not go yet (it ended while
+  // tracking was off) sends it now, before the record lets go of the text
+  if (record.messages && !record.transcriptSent && !trackingOff(settings) && !textStays(record, settings)) {
+    await uploadTranscript(record, Episodes.splitTurns(record.messages), record.start, settings);
+  }
+  // an episode from before 0.5: the conversation as the participant reviewed it on the check-in
+  // page (as 0.4 promised), redacted once more; `transcript_edited` says whether they deleted anything
+  const reviewed = record.reviewAtCheckin && !record.keepText && !record.heldAnswers && !excluded(settings, record.url) &&
+                   typeof message.transcript === "string";
   await updateEpisode(record.id, (current) => {
     const next = { ...current, checkin: { ...current.checkin, doneAt: Date.now() } };
     return current.status === "open" ? next : doneRecord(next);       // an open one becomes done when it ends
   });
-  // the conversation as the participant reviewed it, redacted once more (names added to the
-  // settings since are removed too); `transcript_edited` says whether they deleted anything
   await upload("checkin", { episode: record.id, site: record.site, mode: record.mode,
                             answers: redactAnswers(message.answers, settings.redactNames), related_later: later,
-                            transcript: typeof message.transcript === "string" ? Redact.redact(message.transcript, settings.redactNames).text : null,
-                            transcript_edited: Boolean(message.edited) }, settings);
+                            ...(reviewed ? { transcript: Redact.redact(message.transcript, settings.redactNames).text,
+                                             transcript_edited: Boolean(message.edited) } : {}) }, settings);
   await count("checked_in");
   await updateBadge();
 }
 
-// The episode is no longer asked about: "No" (not advice) or ✕ (skip) on an episode without
-// answers. An open one is marked and its chat closes it (so its later turns go to the advice
-// judge only, and its text goes once the chat is settled); a closed one is deleted.
+// The episode is no longer asked about: "No" (not advice) on an episode without answers. An open
+// one is marked and its chat closes it (so its later turns go to the advice judge only, and its
+// text goes once the chat is settled); a closed one is deleted.
 async function removeEpisode(id) {
   let gone = null;
   await updateEpisode(id, (record) => {
     if (record.status === "removed") return record;          // removed before: its chat deletes it
-    // NOTE: [edge case callout] answers say it was advice: a "No" from a question left open in
-    // another tab (a confirm pop-up in a background tab) after they were given changes nothing
-    if (record.answers) return record;
+    // NOTE: [design thought] the participant's latest answer counts: a "No" from a page or pop-up
+    // left open in another tab removes the episode even after answers (the page then says so); the
+    // upload tells the study team that answers already sent belong to a removed episode
     gone = record;
     return record.status === "open" ? { ...withoutText(record), status: "removed", openingText: "", answers: null } : null;
   });
@@ -763,22 +874,17 @@ async function removeEpisode(id) {
 async function onNotAdvice(message) {
   const gone = await removeEpisode(message.id);
   if (!gone) return;
+  await serialized("queue", async () => save("queue", ((await load("queue")) || []).filter((event) => event.payload.episode !== gone.id)));
   await count("not_advice");
   // counts only: no text, no answers
   await upload("not_advice", { episode: gone.id, site: gone.site, mode: gone.mode, turns: gone.end - gone.start + 1,
                                opening_turn: gone.opening - gone.start + 1, open: gone.status === "open",
-                               closed_by: gone.closedBy }, await getSettings());
-}
-
-// The panel's ✕ on an episode with no answers yet: skip it (its text is deleted).
-async function onDismissed(message) {
-  const record = await load(`episode:${message.id}`);
-  if (!record || record.answers) return onPanelClosed(message);   // answered before: closing keeps the answers
-  if (await removeEpisode(message.id)) await count("dismissed");
+                               closed_by: gone.closedBy, had_answers: Boolean(gone.answers) }, await getSettings());
 }
 
 // ✕ on a page of an episode that has answers: they stand as they are. On the final page this
-// makes them the final ones (the text stays for the check-in).
+// makes them the final ones. (A page without answers has no ✕: a conversation cannot be skipped,
+// only answered, put off with "later (1 h)", or marked as not advice.)
 async function onPanelClosed(message) {
   if (message.stage === "final") {
     await updateEpisode(message.id, (record) => (record.finalDue ? { ...record, finalDue: false } : record));
@@ -822,7 +928,7 @@ async function onConfirmAnswer(message, tabId) {
                              turns: record.end - record.start + 1 }, await getSettings());
   }
   if (message.answer === "yes") await updateEpisode(message.id, (current) => ({ ...current, confirmedAt: current.confirmedAt ?? Date.now() }));
-  if (message.answer === "no" && record && !record.answers) await panelFinished(message.id, tabId).then(() => onNotAdvice(message));
+  if (message.answer === "no" && record) await panelFinished(message.id, tabId).then(() => onNotAdvice(message));
   else await offerRefused(tabId);
 }
 
@@ -844,8 +950,9 @@ async function expireWaiting() {
   for (const [, record] of await loadAll("episode:")) {
     if (record.openedAt > limit) continue;
     if (record.status === "pending") {
-      await updateEpisode(record.id, (current) => (current.status === "pending" ? null : current));
-      await count("expired");
+      let expired = false;
+      await updateEpisode(record.id, (current) => (current.status === "pending" ? ((expired = true), null) : current));
+      if (expired) await count("expired");
     } else if (record.finalDue) {
       await updateEpisode(record.id, (current) => ({ ...current, finalDue: false }));
     }
@@ -855,11 +962,19 @@ async function expireWaiting() {
 
 // ---------------- uploads ----------------
 async function upload(type, payload, settings) {
+  const started = generation;
   const event = { type, participant_id: settings.participantId, sent_at: Date.now(), payload };
-  if (settings.localOnly || !(await post(event, settings))) {
-    await serialized("queue", async () => save("queue", [...((await load("queue")) || []), event]));
+  if (await post(event, settings)) return;
+  await serialized("queue", async () => {
+    const queue = (await load("queue")) || [];
+    // NOTE: [edge case callout] dropped, not queued: an event of an episode marked not advice
+    // while it was on its way, and anything after "delete all data" began meanwhile (checked last,
+    // with no wait before the write, so a deleted conversation cannot come back through the queue)
+    const episode = payload.episode && type !== "not_advice" ? await load(`episode:${payload.episode}`) : null;
+    if ((payload.episode && type !== "not_advice" && (!episode || episode.status === "removed")) || started !== generation) return;
+    await save("queue", [...queue, event]);
     chrome.alarms.create("flush", { delayInMinutes: 30 });
-  }
+  });
 }
 
 async function post(event, settings) {
@@ -876,7 +991,6 @@ async function post(event, settings) {
 
 async function flushQueue() {
   const settings = await getSettings();
-  if (settings.localOnly) return;
   const started = generation;
   await serialized("queue", async () => {
     const remaining = [];
@@ -890,17 +1004,98 @@ async function flushQueue() {
   });
 }
 
-// Twice a day: the extension is still installed, with counts only (IRB protocol).
+// ---------------- is the extension tracking? (heartbeat, status, uninstall) ----------------
+// The five chat sites, as the manifest lists them for the content script ("https://chatgpt.com/*", ...)
+const STUDY_SITES = chrome.runtime.getManifest().content_scripts[0].matches.filter((match) => match.startsWith("https://"));
+
+// What the study needs to know for each day (payment is withheld for days without tracking): is
+// tracking paused, and on which of the five sites can the extension capture? A site is lost when
+// the participant excluded it in the settings, or withheld the extension's access to it in Chrome
+// (chrome://extensions -> Site access).
+async function trackingStatus(settings) {
+  const excludedSites = [], withoutAccess = [], listening = [];
+  for (const match of STUDY_SITES) {
+    const host = new URL(match.replace("*", "")).hostname;
+    const isExcluded = excluded(settings, `https://${host}/`);
+    const permitted = await chrome.permissions.contains({ origins: [match] });
+    if (isExcluded) excludedSites.push(host);
+    if (!permitted) withoutAccess.push(host);
+    if (permitted && !isExcluded) listening.push(host);
+  }
+  return { tracking: !settings.paused && listening.length > 0, paused: settings.paused, paused_at: settings.pausedAt,
+           listening_sites: listening, excluded_sites: excludedSites, sites_without_access: withoutAccess };
+}
+
+// Twice a day: the extension is still installed, whether it is tracking, and counts only (IRB
+// protocol). No heartbeat means Chrome was not running, or the extension was turned off or removed.
 async function heartbeat() {
   const settings = await getSettings();
+  if (!settings.participantId) return;          // nothing to report before the participant set up the extension
   const stats = (await load("stats")) || {};
   const episodes = (await loadAll("episode:")).map(([, episode]) => episode);
   await upload("heartbeat", {
-    version: chrome.runtime.getManifest().version, paused: settings.paused, rating_mode: settings.ratingMode, ...stats,
+    version: chrome.runtime.getManifest().version, rating_mode: settings.ratingMode, ...(await trackingStatus(settings)),
+    previous_heartbeat_at: (await load("heartbeatAt")) ?? null, ...stats,
     open_episodes: episodes.filter((episode) => episode.status === "open").length,
     waiting_rating: episodes.filter(Modes.waiting).length,
     waiting_checkin: episodes.filter((episode) => episode.checkin && !episode.checkin.doneAt).length,
   }, settings);
+  await save("heartbeatAt", Date.now());
+}
+
+// The heartbeat, if the last one is about 12 hours old. The alarm comes here, and so does every
+// start of the worker, which Chrome may start for the alarm itself: one at a time, so the second
+// finds the heartbeat just sent.
+// NOTE: [design thought] an hour of slack: a missed alarm fires once when Chrome starts again and
+// then keeps its old grid, so the next one can come less than 12 hours after a heartbeat sent at
+// that start
+function heartbeatIfDue() {
+  return serialized("heartbeat", async () => {
+    if (Date.now() < ((await load("heartbeatAt")) || 0) + (HEARTBEAT_MINUTES - 60) * 60000) return;
+    await expireWaiting();
+    await heartbeat();
+  });
+}
+
+// NOTE: [edge case callout] Chrome may drop alarms when it restarts, and creating an alarm again
+// starts its clock again: a participant who closes Chrome every evening would never reach the
+// 12-hour mark. So the alarm is created only when it is missing, timed from the last heartbeat.
+async function keepHeartbeatAlarm() {
+  if (await chrome.alarms.get("heartbeat")) return;
+  const next = Math.max(((await load("heartbeatAt")) || 0) + HEARTBEAT_MINUTES * 60000, Date.now() + 60000);
+  chrome.alarms.create("heartbeat", { when: next, periodInMinutes: HEARTBEAT_MINUTES });
+}
+
+// A change of what is tracked (paused or resumed, sites excluded or access withheld, the
+// participant ID set) is reported at once, so the study sees when it happened, not only at the
+// next heartbeat.
+async function statusChanged() {
+  const settings = await getSettings();
+  await setUninstallUrl(settings);
+  if (settings.participantId) await upload("status", await trackingStatus(settings), settings);
+}
+
+// When the extension is removed, Chrome opens this address: the study server records that the
+// participant uninstalled it. (The page cannot be a header-protected request, so the study key
+// goes in the address; it ships in every copy of the extension anyway.)
+async function setUninstallUrl(settings) {
+  const query = new URLSearchParams({ participant_id: settings.participantId, key: settings.studyKey });
+  await chrome.runtime.setUninstallURL(`${settings.serverUrl}/uninstalled?${query}`);
+}
+
+// What "Hold my answers on this computer" held before 0.5: sent, or deleted, as the participant
+// chooses on the settings page.
+async function onHeld(message) {
+  await serialized("queue", async () => {
+    if (message.send) await save("queue", [...((await load("queue")) || []), ...((await load("held")) || [])]);
+    await remove("held");
+  });
+  // their episodes' conversations go too (from now on, as for every episode), or never
+  for (const [, record] of await loadAll("episode:")) {
+    if (!record.heldAnswers) continue;
+    await updateEpisode(record.id, ({ heldAnswers, ...current }) => (message.send ? current : { ...withoutText(current), keepText: true }));
+  }
+  if (message.send) { await flushQueue(); await sendWaitingTranscripts(); }
 }
 
 // "Delete all data on this computer" (settings page): everything but the settings, and every
@@ -908,12 +1103,13 @@ async function heartbeat() {
 // before now are ignored, and open chat pages forget which of their turns were sent.
 async function deleteAll() {
   generation += 1;
-  const settings = await load("settings");
+  deletingSince = Date.now();
+  const settings = await load("settings"), heartbeatAt = await load("heartbeatAt");
   await chrome.storage.local.clear();
-  await chrome.storage.local.set({ ...(settings ? { settings } : {}), deletedAt: Date.now() });
+  await chrome.storage.local.set({ ...(settings ? { settings } : {}), ...(heartbeatAt ? { heartbeatAt } : {}), deletedAt: deletingSince });
   for (const tab of await chrome.tabs.query({})) chrome.tabs.sendMessage(tab.id, { type: "forget" }).catch(() => {});
   await chrome.alarms.clearAll();
-  chrome.alarms.create("heartbeat", { periodInMinutes: 12 * 60 });
+  await keepHeartbeatAlarm();
   await updateBadge();
 }
 
@@ -925,7 +1121,7 @@ function openCheckin(query) {
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   // the two messages whose callers wait for an answer
   if (message.type === "panel_episode") {
-    load(`episode:${message.id}`).then(async (record) => sendResponse({ episode: record ? await panelEpisode(record, message.stage) : null }));
+    load(`episode:${message.id}`).then((record) => sendResponse({ episode: record ? panelEpisode(record, message.stage) : null }));
     return true;
   }
   if (message.type === "delete_all") {
@@ -946,7 +1142,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     case "offer_seen": onOfferSeen(message); break;
     case "rating_submitted": finished(onRatingSubmitted); break;
     case "not_advice": finished(onNotAdvice); break;
-    case "rating_dismissed": finished(onDismissed); break;
     case "rating_closed": finished(onPanelClosed); break;
     case "rating_snoozed": finished(onSnoozed); break;
     case "open_rating_tab":
@@ -956,6 +1151,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     case "update_answer": onUpdateAnswer(message).then(() => offerRefused(tabId)); break;
     case "confirm_answer": onConfirmAnswer(message, tabId); break;
     case "flush": flushQueue(); break;
+    case "held": onHeld(message); break;
+    case "panel_gone": offerRefused(tabId); break;              // a page went without an answer ("No", or dealt with elsewhere)
   }
 });
 
@@ -977,7 +1174,7 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
     }
     await updateBadge();
   } else if (kind === "flush") await flushQueue();
-  else if (kind === "heartbeat") { await expireWaiting(); await heartbeat(); }
+  else if (kind === "heartbeat") await heartbeatIfDue();
 });
 
 chrome.notifications.onClicked.addListener((id) => {
@@ -1001,6 +1198,9 @@ async function resumeAll() {
   for (const [name] of await loadAll("snap:")) advance(name.slice("snap:".length));
   await expireWaiting();
   if (((await load("queue")) || []).length) chrome.alarms.create("flush", { delayInMinutes: 1 });
+  // a change of the settings the worker did not see (it was updated or stopped meanwhile)
+  await forgetExcluded();
+  await sendWaitingTranscripts();
 }
 
 chrome.runtime.onInstalled.addListener(async (details) => {
@@ -1008,12 +1208,49 @@ chrome.runtime.onInstalled.addListener(async (details) => {
   // NOTE: [edge case callout] before 0.4 an episode ended after 10 quiet minutes; episodes now
   // last until the topic changes or a day goes by, so the old default is replaced
   if (details.reason === "update" && settings.endQuietMinutes === 10) settings.endQuietMinutes = DEFAULT_SETTINGS.endQuietMinutes;
+  // NOTE: [design thought] the update to 0.5 keeps the promises earlier versions made:
+  // - "Hold my answers on this computer" is gone, but what it held is not sent without asking: it
+  //   waits under "held", with the episodes it belongs to, and the settings page (opened now)
+  //   offers to send or delete it;
+  // - an episode from before 0.5 was to send its conversation only after a review at its check-in:
+  //   the check-in page still offers that review for it, and nothing goes on its own before
+  if (details.reason === "update" && /^0\.[0-4]\./.test(details.previousVersion || "")) {
+    const held = settings.localOnly ? (await load("queue")) || [] : [];
+    if (settings.localOnly) {
+      await serialized("queue", async () => {
+        await save("held", [...((await load("held")) || []), ...((await load("queue")) || [])]);
+        await remove("queue");
+      });
+    }
+    const heldEpisodes = new Set(held.map((event) => event.payload.episode).filter(Boolean));
+    for (const [, record] of await loadAll("episode:")) {
+      await updateEpisode(record.id, (current) => ({ ...current, reviewAtCheckin: true, ...(heldEpisodes.has(record.id) ? { heldAnswers: true } : {}) }));
+    }
+  }
+  const wasHolding = Boolean(settings.localOnly);
+  delete settings.localOnly;
   await save("settings", settings);
-  chrome.alarms.create("heartbeat", { periodInMinutes: 12 * 60 });
-  if (!settings.participantId) chrome.runtime.openOptionsPage();
+  if (!settings.participantId || wasHolding) chrome.runtime.openOptionsPage();
   await resumeAll();
 });
-chrome.runtime.onStartup.addListener(async () => {
-  chrome.alarms.create("heartbeat", { periodInMinutes: 12 * 60 });
-  await resumeAll();
+chrome.runtime.onStartup.addListener(resumeAll);
+
+// the settings page or the popup changed what is tracked (or the participant ID): report it, let go
+// of the text of a site excluded now, and send what waited for tracking to be on again
+// ("delete all data" clears the settings and writes them back: that is no change)
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== "local" || !changes.settings?.oldValue || !changes.settings.newValue) return;
+  const before = changes.settings.oldValue, after = changes.settings.newValue;
+  const differs = (field) => JSON.stringify(before[field]) !== JSON.stringify(after[field]);
+  if (["participantId", "paused", "excludedHosts", "serverUrl", "studyKey"].some(differs)) statusChanged();
+  if (differs("excludedHosts")) forgetExcluded();
+  if (trackingOff({ ...DEFAULT_SETTINGS, ...before }) && !trackingOff({ ...DEFAULT_SETTINGS, ...after })) sendWaitingTranscripts();
 });
+// Chrome's site access for the extension changed (chrome://extensions -> Site access)
+chrome.permissions.onAdded.addListener(statusChanged);
+chrome.permissions.onRemoved.addListener(statusChanged);
+
+// whenever the worker starts: a heartbeat if one is due, its alarm is there, and the uninstall
+// address is current
+heartbeatIfDue().then(keepHeartbeatAlarm);
+getSettings().then(setUninstallUrl);

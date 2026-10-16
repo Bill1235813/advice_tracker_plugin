@@ -1,8 +1,8 @@
 // Extension page with everything that waits for the participant: episodes not rated yet (a
 // snoozed panel, a notification, "open in a tab") and day-14 check-ins that are due. The
-// questions come from lib/questions.js, the same lists the rating panel uses. The check-in is
-// also where the participant reviews the conversation: it is stored only with the check-in, after
-// they deleted whatever they do not want us to keep (names, e-mails, numbers are removed already).
+// questions come from lib/questions.js, the same lists the rating panel uses. (The conversation
+// itself goes with the answers, redacted; the check-in asks how things went. Only an episode from
+// before 0.5, whose conversation was to be sent after a review here, still shows it for review.)
 //   ?rate=<id>      opened from a notification or the panel's "open in a tab"; also works for an
 //                   episode that is still going on, or that has answers to update (&stage=<stage>:
 //                   the question the panel asked, e.g. temp after a move to another site)
@@ -25,7 +25,7 @@ async function main() {
     // waiting for answers (lib/modes.js: an ended episode never answered, final answers still
     // due, an open episode the participant was asked about), or the one this tab was opened for
     const requested = params.get("rate") === episode.id && ["open", "pending", "rated"].includes(episode.status);
-    if (Modes.waiting(episode) || requested) list.appendChild(ratingCard(episode, settings, stored, requested ? params.get("stage") : null));
+    if (Modes.waiting(episode) || requested) list.appendChild(ratingCard(episode, requested ? params.get("stage") : null));
     if (checkinDue) list.appendChild(checkinCard(episode, episodes, settings, stored));
   }
   if (!list.children.length) list.innerHTML = '<p class="empty">Nothing is waiting for you right now. Episodes to rate and due check-ins appear here.</p>';
@@ -56,7 +56,7 @@ function newCard(episode, kind) {
 }
 
 // `asked`: the stage of the question the chat page asked, if this tab was opened from it
-function ratingCard(episode, settings, stored, asked) {
+function ratingCard(episode, asked) {
   const card = newCard(episode, "rate");
   const questions = [...Questions.RATINGS, ...Questions.DETAILS];
   const answered = episode.versions > 0;
@@ -71,6 +71,7 @@ function ratingCard(episode, settings, stored, asked) {
     ${answered ? '<p class="meta">Your earlier answers are filled in; change any that are different now.</p>' : ""}
     <div class="form" ${confirmed ? "" : "hidden"}>
       ${Questions.render(questions)}
+      <p class="meta">Your answers are sent with this conversation, from the message quoted above on, with names and other personal details removed.</p>
       <button type="button" class="submit">Submit</button></div>`;
   Questions.fill(card, questions, episode.answers);
   card.querySelector(".yes").onclick = () => { card.querySelector(".confirm").hidden = true; card.querySelector(".form").hidden = false; };
@@ -82,7 +83,7 @@ function ratingCard(episode, settings, stored, asked) {
     const { answers, missing } = Questions.read(card, questions);
     if (missing.length) { alert("Please answer all the questions marked *."); return; }
     await chrome.runtime.sendMessage({ type: "rating_submitted", id: episode.id, rating: { ...answers, ratedAt: Date.now() },
-                                       stage, end: episode.end, basedOn: episode.versions });
+                                       stage, start: episode.start, end: episode.end, basedOn: episode.versions });
     const later = Modes.checkinDue(episode, Date.now()) ? " The two-week check-in for this conversation is below."
                                                         : " We will check back about two weeks after you first asked.";
     card.innerHTML = `<p class="done">Thank you.${later}</p>`;
@@ -94,8 +95,8 @@ function checkinCard(episode, episodes, settings, stored) {
   const card = newCard(episode, "checkin");
   const later = episodes.filter((other) => (other.related || []).includes(episode.id)).length;
   const days = Math.round((Date.now() - episode.openedAt) / 86400000);
-  // the conversation to review: the episode's messages, redacted as they will be stored
-  const messages = messagesOf(episode, stored);
+  // an episode from before 0.5: its conversation, redacted as it will be sent, for review
+  const messages = episode.reviewAtCheckin && !episode.keepText && !episode.heldAnswers ? messagesOf(episode, stored) : [];
   const review = messages.length ? Questions.transcript(messages, settings.redactNames || []) : null;
   const removed = review ? Object.entries(review.counts).map(([kind, count]) => `${count} ${kind}`).join(", ") || "nothing found" : "";
   // the participant's own description of the decision, if they gave one; else what they asked
@@ -115,7 +116,7 @@ function checkinCard(episode, episodes, settings, stored) {
     if (missing.length) { alert("Please answer all the questions marked *."); return; }
     const transcript = review ? card.querySelector(".transcript").value : null;
     await chrome.runtime.sendMessage({ type: "checkin_submitted", id: episode.id, answers: { ...answers, answeredAt: Date.now() },
-                                       transcript, edited: review ? transcript !== review.text : false });
+                                       ...(review ? { transcript, edited: transcript !== review.text } : {}) });
     card.innerHTML = '<p class="done">Thank you, that completes this conversation.</p>';
   };
   return card;

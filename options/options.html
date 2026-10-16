@@ -30,16 +30,22 @@
 <input type="number" id="followupDays" min="1" max="60">
 <label>Minutes without activity after which an advice conversation counts as finished <span class="help">(1440 = one day; a change of topic always ends it)</span></label>
 <input type="number" id="endQuietMinutes" min="1" max="10080">
-<label>Never capture on these sites <span class="help">(one hostname per line, e.g. claude.ai)</span></label>
+<label>Never capture on these sites <span class="help">(one hostname per line, e.g. claude.ai; the study team sees which sites are excluded)</span></label>
 <textarea id="excludedHosts" rows="3"></textarea>
-<label>Names to remove from stored conversations <span class="help">(one per line: your name, family, employer)</span></label>
+<label>Names to remove from conversations before they are sent <span class="help">(one per line: your name, family, employer)</span></label>
 <textarea id="redactNames" rows="3"></textarea>
-<label><input type="checkbox" id="localOnly"> Hold my answers on this computer <span class="help">(nothing is uploaded until you untick this; your messages are still checked by the study's AI model to find advice conversations)</span></label>
-<label><input type="checkbox" id="paused"> Pause tracking</label>
+<label><input type="checkbox" id="paused"> Pause tracking <span class="help">(the study team sees when tracking is paused)</span></label>
+<div id="held" hidden>
+  <p><b>Answers held on this computer.</b> Before version 0.5 you chose to hold your answers on this computer;
+    <span id="held-count"></span> are still here and have not been sent. Version 0.5 sends answers, with the
+    conversation they are about, when you submit them. What should happen to the held ones?</p>
+  <button id="held-send">Send them now</button><button class="danger" id="held-delete">Delete them</button>
+</div>
 <div>
   <button id="save">Save</button><span id="saved"></span>
   <button class="secondary" id="export">Export my data (JSON)</button>
   <button class="danger" id="delete">Delete all data on this computer</button>
 </div>
 <script src="../config.js"></script>
+<script src="../lib/sites.js"></script>
 <script src="options.js"></script>

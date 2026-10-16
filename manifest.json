@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Advice Tracker (research study)",
-  "version": "0.4.2",
+  "version": "0.5.0",
   "description": "Study extension: notices when you ask an AI assistant for advice on a personal decision, asks you to rate the advice, and checks back two weeks later.",
   "permissions": [
     "storage",
@@ -50,5 +50,5 @@
     "48": "icons/icon48.png",
     "128": "icons/icon128.png"
   },
-  "minimum_chrome_version": "116"
+  "minimum_chrome_version": "121"
 }
