@@ -21,7 +21,10 @@
     update: "Your advice conversation continued. Change any answer that is different now:",
     final: "The topic changed, so this advice conversation has ended. Your final answers, please:",
     end: "This conversation seems to have ended. It looked like you asked the AI for advice here:",
+    // the final page of an episode that a week after its first request is complete (closedBy "cut")
+    cut: "A week has passed since you first asked, so this advice conversation is now complete. Your final answers, please:",
   };
+  const introOf = (stage, episode) => (stage === "final" && episode.closedBy === "cut" ? INTRO.cut : INTRO[stage] || INTRO.end);
 
   const CSS = `
     :host { all: initial; }
@@ -163,7 +166,7 @@
           <button id="later" title="Asks again in an hour; also listed under the extension icon" ${answered ? "hidden" : ""}>later (1 h)</button>
           <button id="close" title="Close; your earlier answers stay" ${answered ? "" : "hidden"}>✕</button></div>
         <div class="body">
-          <div class="why"><span id="intro">${Questions.escape(INTRO[episode.stage] || INTRO.end)}</span> <span class="site">(${Questions.escape(episode.site)})</span></div>
+          <div class="why"><span id="intro">${Questions.escape(introOf(episode.stage, episode))}</span> <span class="site">(${Questions.escape(episode.site)})</span></div>
           <div class="quote">${Questions.escape(opening)}</div>
           <div id="confirm" ${episode.confirmed ? "hidden" : ""}><span class="q"><b>Did you ask for advice here?</b></span>
             <div class="actions"><button id="no">No</button><button class="primary" id="yes">Yes</button></div></div>
@@ -202,7 +205,7 @@
       current = { ...newer, stage };
       host.dataset.stage = stage;
       host.dataset.end = current.end;              // the episode's last turn this page knows (tests read it)
-      byId("intro").textContent = INTRO[stage] || INTRO.end;
+      byId("intro").textContent = introOf(stage, current);
       if (moved) send({ type: "rating_shown", id: current.id, start: current.start, end: current.end });
       return true;
     };
@@ -247,14 +250,15 @@
   // when it was first seen (offer_seen, counted as `asked`) and the answer (message `reply`: yes,
   // no, timeout, or superseded when a ratings page takes its place). Returns false when something
   // is already open.
-  function popup(episode, settings, html, asked, reply, onYes) {
+  // (`labels`: other words on the two buttons, and what each answer is called in the reply)
+  function popup(episode, settings, html, asked, reply, onYes, labels = { no: "No", yes: "Yes", answers: { no: "no", yes: "yes" } }) {
     if (document.getElementById("advice-tracker-host") || document.getElementById("advice-tracker-offer")) return false;
     const host = document.createElement("div");
     host.id = "advice-tracker-offer";
     const shadow = styled(host);
     shadow.innerHTML = `
       <div class="offer"><b>Advice Tracker</b> (research study)<br>${html}
-        <div class="actions"><button id="no">No</button><button class="primary" id="yes">Yes</button></div>
+        <div class="actions"><button id="no">${labels.no}</button><button class="primary" id="yes">${labels.yes}</button></div>
         <div class="left" id="left"></div></div>`;
     document.body.appendChild(host);
     let left = settings.updateSeconds, seen = false;
@@ -276,16 +280,19 @@
     }, 1000);
     const finish = (answer) => {
       clearInterval(timer);
-      if (!chrome.runtime?.id && ["yes", "no"].includes(answer)) {
+      if (!chrome.runtime?.id && ["yes", "no", "stop"].includes(answer)) {
         shadow.querySelector(".offer").innerHTML = `<b>Advice Tracker</b> (research study)<br>${UPDATED}`;
         return;
       }
       host.remove();
-      send({ type: reply, id: episode.id, answer });
+      send({ type: reply, id: episode.id, answer: labels.answers[answer] ?? answer });
       if (answer === "yes") onYes();
     };
     byId("yes").onclick = () => finish("yes");
     byId("no").onclick = () => finish("no");
+    // the invitation's "Stop asking about past conversations" link answers by itself
+    const stop = byId("stop");
+    if (stop) stop.onclick = (event) => { event.preventDefault(); finish("stop"); };
     host.addEventListener("superseded", () => finish("superseded"));
     tick();
     markSeen();
@@ -320,5 +327,31 @@
     return popup(episode, settings, html, "offer_confirm", "confirm_answer", () => {});
   }
 
-  root.RatingPanel = { show, refresh, close, offerUpdate, offerTab, offerConfirm };
+  // An invitation to answer questions about a conversation found on the site itself (0.6: a past one,
+  // one from another device, or an update after more turns came from there). It shows no text of that
+  // conversation (it is from another day, maybe another device; this page belongs to the chat company),
+  // and Open answers in the extension's own tab.
+  function offerInvite(invite, settings) {
+    const date = Questions.escape(new Date(invite.openedAt).toLocaleDateString());
+    const site = Questions.escape(invite.site);
+    let html;
+    if (invite.source === "past") {
+      html = `Advice Tracker found a conversation on ${site} from ${date}, before you joined the study, that may have been a request for advice.` +
+             `<br><b>You can earn ${Questions.escape(invite.reward)} for each past conversation you annotate</b> (up to ${invite.pastLimit}; about 5-10 minutes).` +
+             '<div class="left">Answer No or Skip if it was not advice: that is fine, and never affects your participation.' +
+             ' <a href="#" id="stop">Stop asking about past conversations</a></div>';
+    } else if (invite.stage === "final") {
+      html = `Your advice conversation on ${site} from ${date} has ended (${invite.closedBy === "cut" ? "a week has passed since you first asked" : "the topic changed"}). ` +
+             "Your final answers, please?";
+    } else if (invite.update) {
+      html = `Your advice conversation on ${site} from ${date} continued, for example on your phone or another device. Update your answers?`;
+    } else {
+      html = `Advice Tracker found a conversation on ${site} from ${date} that was not recorded as it happened (for example on your phone ` +
+             "or another device). It may have been a request for advice. Answer a few questions (about 5-10 minutes)?";
+    }
+    return popup({ id: invite.id }, settings, `${html}<div class="left">It opens in a separate tab.</div>`, "offer_invite", "invite_answer", () => {},
+                 { no: "Not now", yes: "Open", answers: { no: "later", yes: "open" } });
+  }
+
+  root.RatingPanel = { show, refresh, close, offerUpdate, offerTab, offerConfirm, offerInvite };
 })(self);

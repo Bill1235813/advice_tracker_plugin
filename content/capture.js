@@ -417,6 +417,10 @@
                      queued: result === "queued", busy: result === "busy" });
     } else if (message.type === "offer_tab") {
       sendResponse(RatingPanel.offerTab(message.episode, message.settings) ? { shown: true } : { busy: true });
+    } else if (message.type === "offer_invite") {
+      // (an invitation names only its own site, and is shown only there)
+      if (message.invite.site !== config.name) { sendResponse({ shown: false }); return; }
+      sendResponse(RatingPanel.offerInvite(message.invite, message.settings) ? { shown: true } : { busy: true });
     } else if (message.type === "close_panel") {
       RatingPanel.close(message.id);
     } else if (message.type === "forget") {

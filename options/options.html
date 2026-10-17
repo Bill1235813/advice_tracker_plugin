@@ -9,6 +9,10 @@
   button { padding: 8px 18px; border-radius: 8px; border: 1px solid #4f5bd5; background: #4f5bd5; color: #fff; font: inherit; cursor: pointer; margin-top: 16px; margin-right: 8px; }
   button.danger { background: #b3403a; border-color: #b3403a; } button.secondary { background: #f1f1ec; color: #1f2328; border-color: #d9d9d3; }
   #saved { color: #1e7f4f; margin-left: 8px; }
+  #history { margin-top: 20px; padding: 12px 16px; border: 1px solid #d9d9d3; border-radius: 10px; }
+  #history h2 { font-size: 16px; margin: 0 0 6px; } #history label { font-weight: normal; }
+  #history:target { border-color: #4f5bd5; box-shadow: 0 0 0 3px #eeeffb; }
+  .draft { color: #b3403a; font-size: 12.5px; }
 </style>
 <h1>Advice Tracker settings</h1>
 <label>Participant ID <span class="help">(your study code from the onboarding survey, e.g. AT-1234-5678-9012)</span></label>
@@ -28,13 +32,41 @@
 </details>
 <label>Days until the follow-up check-in</label>
 <input type="number" id="followupDays" min="1" max="60">
-<label>Minutes without activity after which an advice conversation counts as finished <span class="help">(1440 = one day; a change of topic always ends it)</span></label>
+<label>Minutes without activity after which an advice conversation counts as finished <span class="help">(1440 = one day; a change of topic always ends it, and so does a week after your first advice request)</span></label>
 <input type="number" id="endQuietMinutes" min="1" max="10080">
 <label>Never capture on these sites <span class="help">(one hostname per line, e.g. claude.ai; the study team sees which sites are excluded)</span></label>
 <textarea id="excludedHosts" rows="3"></textarea>
 <label>Names to remove from conversations before they are sent <span class="help">(one per line: your name, family, employer)</span></label>
 <textarea id="redactNames" rows="3"></textarea>
 <label><input type="checkbox" id="paused"> Pause tracking <span class="help">(the study team sees when tracking is paused)</span></label>
+<section id="history">
+  <h2>Past conversations and other devices (optional)</h2>
+  <p class="draft">DRAFT wording: to be replaced with the IRB-approved consent text before release.</p>
+  <p>With your permission, Advice Tracker also reads your conversation list on ChatGPT, Claude, Gemini, Grok and Perplexity,
+    in this browser, while a page of the site is open. It reads it through the site's own web interface, as the site's own
+    pages do, at most once every minute.</p>
+  <ul>
+    <li><b>Past conversations</b>: conversations from up to 90 days before you joined the study. When one looks like you asked
+      for advice, you are invited (on that site's page, at most twice a day) to answer questions about it in a separate tab.
+      <b>You can earn $2 for each past conversation you annotate</b>, up to 20 ($40); each takes about 5-10 minutes. Answering
+      No or Skip is always fine and never affects your participation or your base payment.</li>
+    <li><b>Other devices</b>: conversations you have after joining in the sites' phone or desktop apps, or in another browser
+      (they appear in the website's conversation list too). When one looks like advice, you are asked about it as about those on
+      the web; if you continue it on the web, it is asked about there.</li>
+  </ul>
+  <p>Your messages are checked by the study's own AI model, with names and other personal details removed first; it keeps only a
+    yes or no. A conversation's text is sent to the study only together with your answers about it, with personal details removed.
+    Messages sent while tracking was paused, on a site you excluded, on days the extension was not running, or before you last used
+    "Delete all data", are never read. To keep a conversation out, pause tracking (turning the extension off does not keep out what
+    you type on your phone meanwhile). Only the account you are signed in with the first time is read, never a work or team workspace (on Grok,
+    which does not say which account is signed in, one account in this browser is assumed, and reading stops while the
+    conversation list looks like someone else's).
+    You can turn each option off here at any time: the extension then stops reading, and deletes what it found that you did not answer.
+    Note for the study team: reading conversation lists automatically may not be allowed by every site's terms of use.</p>
+  <label><input type="checkbox" id="readPast"> Read my past conversations, so I can annotate some ($2 each, up to 20)</label>
+  <label><input type="checkbox" id="readApps"> Find advice conversations I have in the sites' apps or on other devices</label>
+  <label><input type="checkbox" id="agree"> I have read the above and agree <span class="help">(needed to turn either option on)</span></label>
+</section>
 <div id="held" hidden>
   <p><b>Answers held on this computer.</b> Before version 0.5 you chose to hold your answers on this computer;
     <span id="held-count"></span> are still here and have not been sent. Version 0.5 sends answers, with the

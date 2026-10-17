@@ -21,3 +21,4 @@ button { padding: 8px 18px; border-radius: 8px; border: 1px solid #4f5bd5; backg
 button.secondary { background: #f1f1ec; color: #1f2328; border-color: #d9d9d3; }
 .done { color: #1e7f4f; font-weight: 600; }
 .empty { color: #647084; }
+.transcript-view { max-height: 260px; overflow: auto; white-space: pre-wrap; background: #f3f4fb; padding: 8px; font-size: 12.5px; }

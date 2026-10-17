@@ -8,6 +8,14 @@ async function refresh() {
   document.getElementById("n-pending").textContent = episodes.filter(Modes.waiting).length;
   document.getElementById("n-due").textContent = episodes.filter((e) => Modes.checkinDue(e, now)).length;
   document.getElementById("n-removed").textContent = stats.not_advice || 0;
+  // past conversations found that can be annotated now (followupDays after the request), and the switch
+  document.getElementById("n-past").textContent = episodes.filter((e) => Modes.queueDue(e, now, settings.followupDays ?? 14)?.stage === "past").length;
+  document.getElementById("history-note").innerHTML = `<a href="#" id="history-link">${settings.readPast || settings.readApps
+    ? "Past and other-device conversations: on (change)" : "New: past conversations ($2 each) and other devices: turn on"}</a>`;
+  document.getElementById("history-link").onclick = (event) => {
+    event.preventDefault();
+    chrome.tabs.create({ url: chrome.runtime.getURL("options/options.html#history") });
+  };
   const status = document.getElementById("status");
   if (settings.participantId) {
     status.innerHTML = "<div>Participant <b></b></div>";

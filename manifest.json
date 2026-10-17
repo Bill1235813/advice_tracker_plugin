@@ -1,10 +1,11 @@
 {
   "manifest_version": 3,
   "name": "Advice Tracker (research study)",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Study extension: notices when you ask an AI assistant for advice on a personal decision, asks you to rate the advice, and checks back two weeks later.",
   "permissions": [
     "storage",
+    "unlimitedStorage",
     "alarms",
     "notifications"
   ],
@@ -34,8 +35,15 @@
         "lib/episodes.js",
         "lib/redact.js",
         "lib/questions.js",
+        "lib/history.js",
+        "lib/history/chatgpt.js",
+        "lib/history/claude.js",
+        "lib/history/gemini.js",
+        "lib/history/grok.js",
+        "lib/history/perplexity.js",
         "content/rating_panel.js",
-        "content/capture.js"
+        "content/capture.js",
+        "content/history.js"
       ],
       "run_at": "document_idle"
     }

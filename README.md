@@ -15,7 +15,28 @@ version (one-click install) is in preparation; until then, follow the steps belo
 
 **How it works, in detail:** [`docs/advice-tracker-design.pdf`](docs/advice-tracker-design.pdf).
 
-## What's new in version 0.5.0 (dev branch)
+## What's new in version 0.6.0 (dev branch)
+
+- **Past conversations and other devices (optional, off unless you agree on the settings page).**
+  The settings page has a new section, "Past conversations and other devices" (it opens once after
+  the update). With your agreement the extension also reads your conversation list on the five
+  sites, in this browser, while a page of the site is open:
+  - *Past conversations* (up to 90 days before you joined): when one looks like a request for
+    advice, a small invitation on that site's page (at most twice a day) offers to annotate it in a
+    separate tab: first "Did you ask for advice here?" (Yes, No or Skip), then questions like those
+    of the two-week check-in. **You can earn $2 for each past conversation you annotate** (up to 20).
+    No and Skip are always fine and never affect your participation.
+  - *Other devices*: conversations you have after joining in the sites' phone or desktop apps (they
+    appear in the website's list too) are asked about like those on the web, one at a time per
+    site; if you continue such a conversation on the web, it is asked about there, as usual; an
+    advice conversation you continue on your phone gets an "Update your answers?" invitation.
+  - The invitations show no text of the conversation; the questions open in the extension's own tab.
+    Turning an option off stops the reading and deletes what it found and you did not answer.
+- **An advice conversation is complete a week after you first asked** (as when the topic changes):
+  later messages in that chat count as a new conversation, so the two-week check-in is about the
+  conversation you answered questions about.
+
+## What's new in version 0.5.0
 
 - **Reading the chat pages, fixed for all five sites.** ChatGPT's new page layout is read again
   (it captured nothing before). Only the messages themselves are kept: no "thinking" summaries or
@@ -163,7 +184,23 @@ button.
   passwords, no other websites).
 - **Only the messages you send while tracking is on are processed** (your participant ID is set,
   tracking is not paused, and the site is not excluded). Opening an old chat from the sidebar never
-  sends anything; if you continue an old chat, only your new messages are checked.
+  sends anything; if you continue an old chat, only your new messages are checked. The one
+  exception is the optional reading of past and other-device conversations (next point).
+- **Past conversations and other devices (only if you turned them on, after agreeing on the
+  settings page):** the extension reads your conversation list and conversations through the
+  site's own web interface, in this browser, while a page of the site is open, at most once a
+  minute. Past conversations go back up to 90 days before you joined; other-device conversations
+  are those after you joined that the web page did not see. Messages sent while tracking was paused,
+  on an excluded site, on days the extension was not running, or before you last used "Delete all
+  data" are never read (they do not even leave the chat page into the extension). Only the account
+  you were signed in with the first time is read, never a work or team workspace (on Grok, which does
+  not say which account is signed in, one account in this browser is assumed, and reading stops while
+  the conversation list looks like someone else's). The messages are
+  checked by the study's AI model like those on the web; a conversation's text is sent only with
+  your answers about it (for a past one, the conversation is shown to you as it will be sent).
+  The text of a conversation found but not answered stays on your computer at most 30 days. To keep
+  a conversation out, pause tracking: turning the extension off does not keep out what you type
+  on your phone meanwhile. "Delete all data" also turns both options off.
 - **To find advice conversations**, each message you send is checked by the study's own AI model,
   which runs on university computers (no commercial AI service sees your messages). For this
   check the extension sends your new message, your earlier messages in the same part of the
@@ -187,9 +224,12 @@ button.
   is reported when it happens, and removing the extension is reported too. The study team uses
   this to know on which days the extension was tracking (see the study e-mail for what this means
   for payment).
+- An advice conversation ends when the topic changes, after a day without activity, or a week
+  after your first advice request in it, whichever comes first.
 - Settings page (icon → ⋮ → Options): **pause** tracking, **exclude sites**, list **names to
   remove** from conversations before they are sent, change how long a conversation must be quiet
-  to count as finished, **export** or **delete all** data on this computer.
+  to count as finished, turn **past and other-device conversations** on or off, **export** or
+  **delete all** data on this computer.
 - Putting a panel off ("later") or answering "No" never affects your participation.
 
 Full privacy policy: `store/privacy_policy.html` in the main project, or the link in the study
@@ -212,6 +252,10 @@ e-mail.
   the panel was open, so it could not send your answer. Reload the chat page; questions that still
   wait for an answer are listed under the extension icon → **Open questions & check-ins**.
 - **Chrome removed the extension** after an update: repeat "Load unpacked" from the same folder.
+- **No past or other-device conversations are found**: they are read only while a page of the site
+  is open, a little at a time (one request a minute), and only for the account you were signed in
+  with when you turned the option on. If a site stops answering (it may ask the extension to wait,
+  or refuse), reading that site pauses by itself; the study team sees this in the heartbeat.
 - **Anything else**: e-mail the study team with what you did and what you saw; the
   service-worker log (`chrome://extensions` → Advice Tracker → *Inspect views: service worker*)
   helps if you are comfortable copying it.
@@ -227,9 +271,16 @@ e-mail.
 
 ## For reviewers and developers
 
-- `manifest.json` (Manifest V3, version 0.5.0): permissions `storage`, `alarms`, `notifications`,
-  and host permissions for the five chat sites (plus `localhost` for the mock test page); no
-  remote code.
+- `manifest.json` (Manifest V3, version 0.6.0): permissions `storage`, `unlimitedStorage` (no
+  install warning), `alarms`, `notifications`, and host permissions for the five chat sites (plus
+  `localhost` for the mock test page); no remote code.
+- Past and other-device conversations (0.6, opt-in): `content/history.js` answers the worker's
+  requests with the site's reader (`lib/history/<site>.js`: the conversation list and one
+  conversation, through the site's own read-only API); `lib/history.js` sorts each turn by who sent
+  it (web, past, app, off) and drops the text of turns that may not be read before it leaves the
+  page; `background.js` walks each conversation with the same judges, hands open episodes between
+  the web page and the walk, and asks through one queue per site (`lib/modes.js` `viaQueue`,
+  `queueItem`): a text-free invitation on the site's page, the questions in `ui/checkin.html?item=`.
 - `content/capture.js` reads the conversation from the page (per site, `lib/sites.js` names the
   message elements, the parts that hold their text, and the noise inside them: thinking blocks,
   screen-reader labels, buttons) and notes which user messages were sent there; `background.js`
@@ -245,7 +296,14 @@ e-mail.
   tracking was off), `checkin` (for an episode from 0.4 also the conversation as reviewed
   there, `transcript` and `transcript_edited`, as 0.4 sent it), `prompt`, `not_advice`
   (`had_answers`: answers sent before belong to a removed episode), `heartbeat` and `status` (tracking status: `tracking`, `paused`,
-  `paused_at`, `listening_sites`, `excluded_sites`, `sites_without_access`). On removal Chrome
+  `paused_at`, `listening_sites`, `excluded_sites`, `sites_without_access`, `read_past`,
+  `read_apps`; the heartbeat also `history` (per site: ok, not_yet, waiting, signed_out,
+  other_account, blocked, unsupported), `waiting_past`, `joined_at`, `joined_estimated`,
+  `install_id`). 0.6 adds `source` (web, app, past) to the episode events, `past_annotation`
+  (answers + the redacted transcript of a past episode, with a `fingerprint` to pay each once),
+  `past_skipped`, `consent` (`feature`, `accepted`, `version`) and the `prompt` kinds `invite` and
+  `card`. The server may answer `GET /config` with `{history: {"<site>": false}}` to stop reading a
+  site. On removal Chrome
   opens `<server>/uninstalled?participant_id=...&key=...`, which the study server must answer (it
   records an `uninstalled` event).
 - The design document is in `docs/`. The study server, the GPU worker, the tests (unit tests, a

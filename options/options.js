@@ -7,6 +7,11 @@ async function load() {
   document.getElementById("excludedHosts").value = (settings.excludedHosts || []).join("\n");
   document.getElementById("redactNames").value = (settings.redactNames || []).join("\n");
   document.getElementById("paused").checked = !!settings.paused;
+  // NOTE: [design thought] "I agree" is never ticked in advance: turning an option on needs a tick each time
+  document.getElementById("readPast").checked = !!settings.readPast;
+  document.getElementById("readApps").checked = !!settings.readApps;
+  document.getElementById("agree").checked = false;
+  shown = { readPast: !!settings.readPast, readApps: !!settings.readApps };
   const mode = document.querySelector(`#rating-mode input[value="${settings.ratingMode || DEFAULTS.ratingMode}"]`);
   if (mode) mode.checked = true;
   // what "Hold my answers on this computer" (before 0.5) held back
@@ -15,10 +20,22 @@ async function load() {
   document.getElementById("held-count").textContent = `${held.length} upload(s)`;
 }
 
-// NOTE: [edge case callout] the popup can pause or resume tracking while this page is open: the box
-// follows it, so a later Save here does not quietly undo it
+// What the reading options were when this page last showed them: a Save writes an option only if the
+// participant changed its box since
+let shown = { readPast: false, readApps: false };
+
+// NOTE: [edge case callout] the popup can pause or resume tracking while this page is open, and an
+// invitation, a card or "Delete all data" can turn the reading options off: the boxes follow, so a later
+// Save here does not quietly undo it
 chrome.storage.onChanged.addListener((changes, area) => {
-  if (area === "local" && changes.settings?.newValue) document.getElementById("paused").checked = Boolean(changes.settings.newValue.paused);
+  if (area !== "local" || !changes.settings?.newValue) return;
+  const settings = changes.settings.newValue;
+  document.getElementById("paused").checked = Boolean(settings.paused);
+  for (const field of ["readPast", "readApps"]) {
+    if (Boolean(settings[field]) === shown[field]) continue;
+    document.getElementById(field).checked = Boolean(settings[field]);
+    shown[field] = Boolean(settings[field]);
+  }
 });
 
 for (const [id, send] of [["held-send", true], ["held-delete", false]]) {
@@ -32,6 +49,17 @@ document.getElementById("save").onclick = async () => {
   const { settings = {} } = await chrome.storage.local.get("settings");
   const lines = (id) => document.getElementById(id).value.split("\n").map((s) => s.trim()).filter(Boolean);
   const paused = document.getElementById("paused").checked;
+  // NOTE: [design thought] reading past or other-device conversations needs the participant's
+  // agreement to the text above; turning an option off needs nothing (the background then deletes
+  // what it found that was not answered, and reports the change)
+  const box = (field) => document.getElementById(field).checked;
+  const readPast = box("readPast") !== shown.readPast ? box("readPast") : Boolean(settings.readPast);
+  const readApps = box("readApps") !== shown.readApps ? box("readApps") : Boolean(settings.readApps);
+  const turnsOn = (readPast && !settings.readPast) || (readApps && !settings.readApps);
+  if (turnsOn && !document.getElementById("agree").checked) {
+    alert('Please read the text about past conversations and other devices, and tick "I have read the above and agree" to turn them on.');
+    return;
+  }
   // since when tracking is paused (the heartbeat reports it): kept while it stays paused
   const pausedAt = !paused ? null : (settings.paused && settings.pausedAt) || Date.now();
   const next = {
@@ -43,7 +71,7 @@ document.getElementById("save").onclick = async () => {
     endQuietMinutes: Number(document.getElementById("endQuietMinutes").value) || DEFAULTS.endQuietMinutes,
     excludedHosts: lines("excludedHosts").map(siteOf).filter(Boolean),          // lib/sites.js: "https://www.Claude.ai/new" -> "claude.ai"
     redactNames: lines("redactNames"),
-    paused, pausedAt,
+    paused, pausedAt, readPast, readApps,
     ratingMode: document.querySelector("#rating-mode input:checked")?.value || DEFAULTS.ratingMode,
   };
   await chrome.storage.local.set({ settings: next });
@@ -67,6 +95,7 @@ document.getElementById("delete").onclick = async () => {
   // write anything back afterwards
   await chrome.runtime.sendMessage({ type: "delete_all" });
   alert("Deleted.");
+  load();              // (the reading options are off now)
 };
 
 load();
