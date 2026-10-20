@@ -151,12 +151,19 @@ async function onSnapshot(message, sender) {
     const stored = await load(`snap:${key}`);
     const counted = (await load(`sent:${key}`)) || [];
     let messages = message.messages, sent = message.sent, storedSent = [], captured = counted;
+    // a new copy begins (none was kept, or the page replaces it), or the stored one goes on (`above`:
+    // how many older turns it has taken in above its first turn; `begun`: where a copy begun from
+    // the page found the chat's settled turns): the chat finds its settled turns in the copy by
+    // these (Episodes.expectedOffset)
+    let copy = Math.max(stored?.copy ?? 0, chat?.lined?.copy ?? 0) + 1, above = 0, begun;
     if (stored) {
       // a page that shows only part of a long chat keeps the rest of the stored copy
       // NOTE: [design thought] a turn's id counts the earlier turns with the same text, so the ids
       // of sent turns are renumbered with their turns: the page's from its own numbering, the
       // stored ones where older turns came in above (or an edit replaced them)
-      const merged = Episodes.mergeWindow(stored.messages, message.messages, { fresh: message.fresh ?? null, claimed: message.sent.length > 0 });
+      const pageIds = Episodes.turnIds(Episodes.splitTurns(message.messages).userTurns);
+      const merged = Episodes.mergeWindow(stored.messages, message.messages, { fresh: message.fresh ?? null, claimed: message.sent.length > 0,
+                                                                               sentLast: message.sent.includes(pageIds.at(-1)) });
       const turnsOf = (list) => Episodes.splitTurns(list).userTurns;
       const pageId = merged.pageShift === null ? () => null : Episodes.renumber(turnsOf(message.messages), turnsOf(merged.messages), merged.pageShift);
       const storedId = Episodes.renumber(turnsOf(stored.messages), turnsOf(merged.messages), merged.storedShift, merged.storedKeep);
@@ -166,6 +173,16 @@ async function onSnapshot(message, sender) {
       // the popup's count: the captured turns of the stored copy are renumbered too
       const storedIds = new Set(Episodes.turnIds(turnsOf(stored.messages)));
       captured = captured.map((id) => (storedIds.has(id) ? storedId(id) : id)).filter(Boolean);
+      if (merged.storedKeep > 0 && stored.copy !== undefined) {
+        copy = stored.copy;
+        begun = stored.begun;
+        above = stored.above + merged.storedShift;
+        // NOTE: [edge case callout] an edit of an older turn loaded above the settled ones (both since
+        // the last sync) cuts them off: the chat goes on differently from the cut, so that is where
+        // the next sync looks for them, and the edited turn is judged
+        const settledAt = Episodes.expectedOffset(chat, stored);
+        if (settledAt !== null && merged.storedKeep < settledAt) above -= settledAt - merged.storedKeep;
+      }
     }
     if (stale()) return false;
     const count = [...new Set([...captured, ...sent])];
@@ -180,10 +197,18 @@ async function onSnapshot(message, sender) {
     const same = stored && JSON.stringify(stored.messages) === JSON.stringify(messages);
     // whole: the copy holds the chat from its first settled turn on (Episodes.sync). A copy begun
     // from a part of the chat further down (its earlier copy was dropped) stays a part.
-    const pageIds = Episodes.turnIds(Episodes.splitTurns(messages).userTurns);
-    const whole = stored ? stored.whole ?? true : !(Episodes.lineUp(chat?.ids || [], pageIds) > 0);
+    // NOTE: [design thought] a copy begun from the page (none was kept: every turn was synced) finds
+    // the settled turns by their texts and the turns new to the page: older turns loaded above whose
+    // topmost repeats the chat's first text would otherwise be taken for it, and the settled turns
+    // below for new ones
+    let whole = stored?.whole ?? true;
+    if (!stored) {
+      const at = Episodes.lineUp(chat?.ids || [], Episodes.turnIds(Episodes.splitTurns(messages).userTurns), false, null, message.fresh ?? null);
+      whole = !(at > 0);
+      begun = at === null ? undefined : -at;
+    }
     await save(`snap:${key}`, {
-      messages, url: message.url, site: message.site, tabId: sender.tab.id, settled: Boolean(message.settled), whole,
+      messages, url: message.url, site: message.site, tabId: sender.tab.id, settled: Boolean(message.settled), whole, copy, above, begun,
       sent: [...new Set([...storedSent, ...sent])],
       changedAt: same ? stored.changedAt : Date.now(),        // the quiet timer counts from here
       version: (stored?.version || 0) + 1,
@@ -305,7 +330,10 @@ async function settle(key) {
     }
 
     const before = chat;
-    ({ chat, closed } = Episodes.sync(chat, userTurns, new Set(snapshot.sent), snapshot.whole ?? true));
+    let offset;
+    ({ chat, closed, offset } = Episodes.sync(chat, userTurns, new Set(snapshot.sent), snapshot.whole ?? true, Episodes.expectedOffset(chat, snapshot)));
+    // where the settled turns sit in this copy now: the next sync looks for them there
+    chat = { ...chat, lined: { copy: snapshot.copy, above: snapshot.above, offset } };
     // with readApps on, an open episode followed by turns the page did not see sent (another device,
     // most likely) is handed to the walk through the conversation read from the site, instead of ending
     if (closed?.closedBy === "history" && settings.readApps && historyAllowed(settings, hostOf(snapshot.url)) &&
@@ -444,7 +472,7 @@ async function finishClosing(key, chat, page) {
     // NOTE: [edge case callout] a note replayed after a stop has the turn numbers of the snapshot
     // that closed the episode (those of chat.ids); the page may have loaded older turns above since.
     // If its turns are no longer there unchanged, the record closes without text.
-    const shift = Episodes.findOffset(chat.ids, Episodes.turnIds(page.userTurns));
+    const shift = Episodes.findOffset(chat.ids, Episodes.turnIds(page.userTurns), Episodes.expectedOffset(chat, page.snapshot));
     const moved = (turn) => (turn === undefined || turn === null ? turn : turn + shift);
     const closing = shift > 0 ? { ...chat.closing, start: moved(chat.closing.start), opening: moved(chat.closing.opening),
                                   end: moved(chat.closing.end) } : chat.closing;
@@ -749,13 +777,13 @@ async function transcript(record, end, settings) {
   if (end < record.opening || textStays(record, settings)) return null;
   let messages = null;
   if (record.status === "open" && !ownText(record)) {
-    const chat = await load(`chat:${record.chatKey}`);
-    const { userTurns, replies } = Episodes.splitTurns((await load(`snap:${record.chatKey}`))?.messages || []);
+    const chat = await load(`chat:${record.chatKey}`), snapshot = await load(`snap:${record.chatKey}`);
+    const { userTurns, replies } = Episodes.splitTurns(snapshot?.messages || []);
     // NOTE: [edge case callout] the page may have loaded older turns above since the chat was last
     // brought in line with it (its judging loop waits for a label meanwhile): the episode's turns
-    // then sit further down in the snapshot. If its known turns are not there unchanged, nothing
-    // is sent rather than other turns.
-    const shift = Episodes.findOffset(chat?.ids || [], Episodes.turnIds(userTurns));
+    // then sit further down in the snapshot, where the copy says. If its known turns are not there
+    // unchanged, nothing is sent rather than other turns.
+    const shift = Episodes.findOffset(chat?.ids || [], Episodes.turnIds(userTurns), Episodes.expectedOffset(chat, snapshot));
     if (shift < 0) return null;
     messages = Episodes.episodeMessages(userTurns, replies, record.opening + shift, end + shift);
   } else if (record.messages) {
@@ -1823,7 +1851,7 @@ async function episodeTurns(record) {
   if (record.heldBy === "history") return { hashes: record.turnHashes || [], messages: record.messages || null };
   const chat = await load(`chat:${record.chatKey}`), snapshot = await load(`snap:${record.chatKey}`);
   const { userTurns, replies } = Episodes.splitTurns(snapshot?.messages || []);
-  const shift = snapshot ? Episodes.findOffset(chat?.ids || [], Episodes.turnIds(userTurns)) : -1;
+  const shift = snapshot ? Episodes.findOffset(chat?.ids || [], Episodes.turnIds(userTurns), Episodes.expectedOffset(chat, snapshot)) : -1;
   if (shift < 0 || chat?.episodeId !== record.id) return { hashes: [], messages: null };
   return { hashes: userTurns.slice(record.start - 1 + shift, record.end + shift).map(Episodes.looseHash),
            messages: Episodes.episodeMessages(userTurns, replies, record.start + shift, record.end + shift) };

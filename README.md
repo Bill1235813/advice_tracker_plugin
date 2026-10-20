@@ -15,7 +15,16 @@ version (one-click install) is in preparation; until then, follow the steps belo
 
 **How it works, in detail:** [`docs/advice-tracker-design.pdf`](docs/advice-tracker-design.pdf).
 
-## What's new in version 0.6.2 (v0.6 branch)
+## What's new in version 0.6.3 (v0.6 branch)
+
+- **Scrolling up in a long conversation no longer asks again.** When older messages load above as
+  you scroll up and one of them repeats a question you asked here (the same question asked a month
+  before, say), the extension no longer takes the older one for yours: it does not ask about your
+  question again, also after its questions have ended, and the conversation sent with your answers
+  is the right one. Editing one of those older messages, or a message below them into a text that
+  repeats an earlier one, is followed correctly too.
+
+## What's new in version 0.6.2
 
 - **Asked again only after you write more.** In every mode, your answers are asked again (an
   update, or the final answers) only when you have written more in that conversation since you
@@ -291,7 +300,7 @@ e-mail.
 
 ## For reviewers and developers
 
-- `manifest.json` (Manifest V3, version 0.6.2): permissions `storage`, `unlimitedStorage` (no
+- `manifest.json` (Manifest V3, version 0.6.3): permissions `storage`, `unlimitedStorage` (no
   install warning), `alarms`, `notifications`, and host permissions for the five chat sites (plus
   `localhost` for the mock test page); no remote code.
 - Past and other-device conversations (0.6, opt-in): `content/history.js` answers the worker's

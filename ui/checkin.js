@@ -81,7 +81,7 @@ function reviewMessages(episode, stored) {
   if (episode.status !== "open") return [];
   const chat = stored[`chat:${episode.chatKey}`], snapshot = stored[`snap:${episode.chatKey}`];
   const { userTurns, replies } = Episodes.splitTurns(snapshot?.messages || []);
-  const shift = Episodes.findOffset(chat?.ids || [], Episodes.turnIds(userTurns));
+  const shift = Episodes.findOffset(chat?.ids || [], Episodes.turnIds(userTurns), Episodes.expectedOffset(chat, snapshot));
   return shift < 0 ? [] : Episodes.episodeMessages(userTurns, replies, episode.start + shift, episode.end + shift);
 }
 
