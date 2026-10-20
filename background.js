@@ -2515,7 +2515,7 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
     const record = await updateEpisode(name, (current) => (current.checkin ? { ...current, checkin: { ...current.checkin, notifiedAt: Date.now() } } : current));
     if (record && Modes.checkinDue(record, Date.now())) {
       chrome.notifications.create(`checkin|${name}`, {
-        type: "basic", iconUrl: "icons/icon128.png", title: "Advice Tracker: two-week check-in",
+        type: "basic", iconUrl: "icons/icon128.png", title: "Advice Tracker: follow-up check-in",
         message: "How did it go? Tell us what you decided after asking an AI assistant for advice (about 5-10 min).",
         requireInteraction: true,
       });

@@ -19,7 +19,12 @@ version (one-click install) is in preparation; until then, follow the steps belo
 
 - **For testing**: the settings page sets the time until the follow-up check-in in seconds
   (1209600 = 14 days, the study's setting), so a tester can bring the check-in, and the questions
-  about past conversations, within minutes. Participants keep the default.
+  about past conversations, within minutes. Participants keep the default. The time counts from the
+  first advice request and applies to conversations first answered after the change. With a short
+  time, a question left unanswered that long is deleted at the next browser start or extension
+  reload, the check-in can come while the conversation is still going on (answering it then skips
+  the final answers at a change of topic), and a conversation from another device still gets its
+  check-in a week after its first answers; the one-week cut stays 7 days.
 
 ## What's new in version 0.6.0
 

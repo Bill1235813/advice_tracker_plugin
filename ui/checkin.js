@@ -46,7 +46,7 @@ async function main() {
     // waiting for answers (lib/modes.js: an ended episode never answered, final answers still
     // due, an open episode the participant was asked about), or the one this tab was opened for
     const requested = params.get("rate") === episode.id && ["open", "pending", "rated"].includes(episode.status);
-    if (Modes.waiting(episode) || requested) list.appendChild(ratingCard(episode, requested ? params.get("stage") : null));
+    if (Modes.waiting(episode) || requested) list.appendChild(ratingCard(episode, requested ? params.get("stage") : null, settings));
     if (checkinDue) list.appendChild(checkinCard(episode, episodes, settings, stored));
   }
   if (!list.children.length) list.innerHTML = '<p class="empty">Nothing is waiting for you right now. Episodes to rate and due check-ins appear here.</p>';
@@ -92,7 +92,7 @@ function newCard(episode, kind) {
 }
 
 // `asked`: the stage of the question the chat page asked, if this tab was opened from it
-function ratingCard(episode, asked) {
+function ratingCard(episode, asked, settings) {
   const card = newCard(episode, "rate");
   const questions = [...Questions.RATINGS, ...Questions.DETAILS];
   const answered = episode.versions > 0;
@@ -120,8 +120,9 @@ function ratingCard(episode, asked) {
     if (missing.length) { alert("Please answer all the questions marked *."); return; }
     await chrome.runtime.sendMessage({ type: "rating_submitted", id: episode.id, rating: { ...answers, ratedAt: Date.now() },
                                        stage, start: episode.start, end: episode.end, basedOn: episode.versions });
-    const later = Modes.checkinDue(episode, Date.now()) ? " The two-week check-in for this conversation is below."
-                                                        : " We will check back about two weeks after you first asked.";
+    // (the follow-up time is 14 days in the study; a tester can shorten it on the settings page)
+    const later = Modes.checkinDue(episode, Date.now()) ? " The check-in for this conversation is below."
+      : ` We will check back about ${Questions.duration(Modes.followupSeconds(settings))} after you first asked.`;
     card.innerHTML = `<p class="done">Thank you.${later}</p>`;
   };
   return card;
@@ -198,7 +199,8 @@ function itemCard(episode, settings, now) {
     } else {
       await chrome.runtime.sendMessage({ type: "rating_submitted", id: episode.id, rating: { ...answers, ratedAt: Date.now() },
                                          stage: decision.stage, start: episode.start, end: episode.end, basedOn: episode.versions });
-      done(Modes.checkinDue(episode, Date.now()) ? "Thank you." : "Thank you. We will check back about two weeks after you first asked.");
+      done(Modes.checkinDue(episode, Date.now()) ? "Thank you."
+        : `Thank you. We will check back about ${Questions.duration(Modes.followupSeconds(settings))} after you first asked.`);
     }
   };
   return card;

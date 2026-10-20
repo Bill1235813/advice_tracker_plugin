@@ -62,6 +62,13 @@ document.getElementById("save").onclick = async () => {
     alert('Please read the text about past conversations and other devices, and tick "I have read the above and agree" to turn them on.');
     return;
   }
+  // NOTE: [edge case callout] the field's min="1" does not stop a click on Save: a negative or zero time
+  // would make every check-in due at once and delete every unanswered question at the next start
+  const followupSeconds = Math.round(Number(document.getElementById("followupSeconds").value));
+  if (!(followupSeconds >= 1)) {
+    alert("Please enter the follow-up time as a whole number of seconds, 1 or more (1209600 = 14 days).");
+    return;
+  }
   // since when tracking is paused (the heartbeat reports it): kept while it stays paused
   const pausedAt = !paused ? null : (settings.paused && settings.pausedAt) || Date.now();
   const next = {
@@ -69,7 +76,7 @@ document.getElementById("save").onclick = async () => {
     participantId: document.getElementById("participantId").value.trim(),
     serverUrl: document.getElementById("serverUrl").value.trim().replace(/\/$/, ""),
     studyKey: document.getElementById("studyKey").value.trim(),
-    followupSeconds: Math.round(Number(document.getElementById("followupSeconds").value)) || DEFAULTS.followupSeconds,
+    followupSeconds,
     endQuietMinutes: Number(document.getElementById("endQuietMinutes").value) || DEFAULTS.endQuietMinutes,
     excludedHosts: lines("excludedHosts").map(siteOf).filter(Boolean),          // lib/sites.js: "https://www.Claude.ai/new" -> "claude.ai"
     redactNames: lines("redactNames"),

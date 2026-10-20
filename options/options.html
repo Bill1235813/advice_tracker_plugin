@@ -30,7 +30,7 @@
 <label>Study key</label>
 <input type="text" id="studyKey">
 </details>
-<label>Seconds until the follow-up check-in <span class="help">(1209600 = 14 days, the study's setting; a shorter time is for testing only. Chrome waits at least 30 seconds)</span></label>
+<label>Seconds until the follow-up check-in <span class="help">(1209600 = 14 days, the study's setting; a shorter time is for testing only. It counts from the advice request, for conversations first answered after you save; with a short time, questions left unanswered that long are deleted at the next browser start or extension reload)</span></label>
 <input type="number" id="followupSeconds" min="1" step="1">
 <label>Minutes without activity after which an advice conversation counts as finished <span class="help">(1440 = one day; a change of topic always ends it, and so does a week after your first advice request)</span></label>
 <input type="number" id="endQuietMinutes" min="1" max="10080">
