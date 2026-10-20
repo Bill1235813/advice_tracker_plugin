@@ -1,9 +1,11 @@
-const FIELDS = ["participantId", "serverUrl", "studyKey", "followupDays", "endQuietMinutes"];
-const DEFAULTS = { followupDays: 14, endQuietMinutes: 24 * 60, ratingMode: STUDY_CONFIG.ratingMode || "switching" };
+const FIELDS = ["participantId", "serverUrl", "studyKey", "endQuietMinutes"];
+const DEFAULTS = { followupSeconds: 14 * 24 * 3600, endQuietMinutes: 24 * 60, ratingMode: STUDY_CONFIG.ratingMode || "switching" };
 
 async function load() {
   const { settings = {} } = await chrome.storage.local.get("settings");
   for (const field of FIELDS) document.getElementById(field).value = settings[field] ?? DEFAULTS[field] ?? "";
+  // (lib/modes.js: settings saved before 0.6.1 hold the follow-up time in days)
+  document.getElementById("followupSeconds").value = Modes.followupSeconds(settings);
   document.getElementById("excludedHosts").value = (settings.excludedHosts || []).join("\n");
   document.getElementById("redactNames").value = (settings.redactNames || []).join("\n");
   document.getElementById("paused").checked = !!settings.paused;
@@ -67,13 +69,14 @@ document.getElementById("save").onclick = async () => {
     participantId: document.getElementById("participantId").value.trim(),
     serverUrl: document.getElementById("serverUrl").value.trim().replace(/\/$/, ""),
     studyKey: document.getElementById("studyKey").value.trim(),
-    followupDays: Number(document.getElementById("followupDays").value) || DEFAULTS.followupDays,
+    followupSeconds: Math.round(Number(document.getElementById("followupSeconds").value)) || DEFAULTS.followupSeconds,
     endQuietMinutes: Number(document.getElementById("endQuietMinutes").value) || DEFAULTS.endQuietMinutes,
     excludedHosts: lines("excludedHosts").map(siteOf).filter(Boolean),          // lib/sites.js: "https://www.Claude.ai/new" -> "claude.ai"
     redactNames: lines("redactNames"),
     paused, pausedAt, readPast, readApps,
     ratingMode: document.querySelector("#rating-mode input:checked")?.value || DEFAULTS.ratingMode,
   };
+  delete next.followupDays;          // (days, before 0.6.1: followupSeconds replaces it)
   await chrome.storage.local.set({ settings: next });
   document.getElementById("saved").textContent = "saved";
   load();                     // the sites as they were saved

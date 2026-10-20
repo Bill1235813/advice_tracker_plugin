@@ -30,8 +30,8 @@
 <label>Study key</label>
 <input type="text" id="studyKey">
 </details>
-<label>Days until the follow-up check-in</label>
-<input type="number" id="followupDays" min="1" max="60">
+<label>Seconds until the follow-up check-in <span class="help">(1209600 = 14 days, the study's setting; a shorter time is for testing only. Chrome waits at least 30 seconds)</span></label>
+<input type="number" id="followupSeconds" min="1" step="1">
 <label>Minutes without activity after which an advice conversation counts as finished <span class="help">(1440 = one day; a change of topic always ends it, and so does a week after your first advice request)</span></label>
 <input type="number" id="endQuietMinutes" min="1" max="10080">
 <label>Never capture on these sites <span class="help">(one hostname per line, e.g. claude.ai; the study team sees which sites are excluded)</span></label>
@@ -80,4 +80,5 @@
 </div>
 <script src="../config.js"></script>
 <script src="../lib/sites.js"></script>
+<script src="../lib/modes.js"></script>
 <script src="options.js"></script>

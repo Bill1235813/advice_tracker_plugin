@@ -29,7 +29,7 @@ async function main() {
   for (const site of new Set(episodes.map((episode) => episode.site))) {
     const mine = episodes.filter((episode) => episode.site === site && queueKindOn(episode, settings));
     const opened = mine.find((episode) => episode.id === asked && Modes.viaQueue(episode));
-    const item = opened ? { record: opened } : Modes.queueItem(mine, now, settings.followupDays ?? 14, stored[`qstate:${site}`]?.current);
+    const item = opened ? { record: opened } : Modes.queueItem(mine, now, Modes.followupSeconds(settings), stored[`qstate:${site}`]?.current);
     if (item) queued.add(item.record.id);
   }
   for (const episode of episodes) {
@@ -134,7 +134,7 @@ function ratingCard(episode, asked) {
 function itemCard(episode, settings, now) {
   const card = newCard(episode, "item");
   const past = episode.source === "past", answered = episode.versions > 0;
-  const decision = Modes.queueDue(episode, now, settings.followupDays ?? 14) || Modes.pageDue(episode) || { stage: answered ? "update" : "first" };
+  const decision = Modes.queueDue(episode, now, Modes.followupSeconds(settings)) || Modes.pageDue(episode) || { stage: answered ? "update" : "first" };
   const questions = past ? Questions.PAST : [...Questions.RATINGS, ...Questions.DETAILS];
   const confirmed = answered || Boolean(episode.confirmedAt);
   const when = new Date(episode.openedAt).toLocaleDateString();

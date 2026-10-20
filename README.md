@@ -15,7 +15,13 @@ version (one-click install) is in preparation; until then, follow the steps belo
 
 **How it works, in detail:** [`docs/advice-tracker-design.pdf`](docs/advice-tracker-design.pdf).
 
-## What's new in version 0.6.0 (dev branch)
+## What's new in version 0.6.1 (v0.6 branch)
+
+- **For testing**: the settings page sets the time until the follow-up check-in in seconds
+  (1209600 = 14 days, the study's setting), so a tester can bring the check-in, and the questions
+  about past conversations, within minutes. Participants keep the default.
+
+## What's new in version 0.6.0
 
 - **Past conversations and other devices (optional, off unless you agree on the settings page).**
   The settings page has a new section, "Past conversations and other devices" (it opens once after
@@ -271,7 +277,7 @@ e-mail.
 
 ## For reviewers and developers
 
-- `manifest.json` (Manifest V3, version 0.6.0): permissions `storage`, `unlimitedStorage` (no
+- `manifest.json` (Manifest V3, version 0.6.1): permissions `storage`, `unlimitedStorage` (no
   install warning), `alarms`, `notifications`, and host permissions for the five chat sites (plus
   `localhost` for the mock test page); no remote code.
 - Past and other-device conversations (0.6, opt-in): `content/history.js` answers the worker's

@@ -4,8 +4,8 @@
 //   order (lib/episodes.js: the advice judge while searching, the continuation judge inside an
 //   episode) -> an episode ends at a topic switch, or after endQuietMinutes without activity
 //   -> the participant is asked for ratings as the episode's rating mode says (lib/modes.js:
-//   frequent, switching, periodical or combined) -> check-in followupDays after the episode's first
-//   request.
+//   frequent, switching, periodical or combined) -> check-in followupSeconds after the episode's first
+//   request (14 days).
 // Every text leaves the computer only after local redaction (lib/redact.js): the episode's
 // conversation (the participant's messages and the assistant's replies) is uploaded with every set
 // of answers, and once more, complete, when an episode with answers ends.
@@ -36,7 +36,7 @@ importScripts("config.js", "lib/sites.js", "lib/episodes.js", "lib/modes.js", "l
 const DEFAULT_SETTINGS = {
   participantId: "", serverUrl: STUDY_CONFIG.serverUrl, studyKey: STUDY_CONFIG.studyKey, paused: false, pausedAt: null,
   ratingMode: STUDY_CONFIG.ratingMode || "switching",     // "frequent" | "switching" | "periodical" | "combined"
-  followupDays: 14,
+  followupSeconds: 14 * 24 * 3600,   // the check-in this long after an episode's first request (the settings page can shorten it for a test)
   endQuietMinutes: 24 * 60,    // an episode also ends after this long without activity in its chat
   cutDays: 7,                  // ... and is complete this many days after its first request (as at a change of topic)
   pauseMinutes: 3,            // periodical, combined: a pause is this long without typing in the episode's chat
@@ -57,7 +57,12 @@ let deletingSince = 0;       // when "delete all data" last ended (Infinity whil
 async function load(name) { return (await chrome.storage.local.get(name))[name]; }
 async function save(name, value) { await chrome.storage.local.set({ [name]: value }); }
 async function remove(name) { await chrome.storage.local.remove(name); }
-async function getSettings() { return { ...DEFAULT_SETTINGS, ...((await load("settings")) || {}) }; }
+// NOTE: [edge case callout] settings saved before 0.6.1 hold the follow-up time in days (followupDays);
+// Modes.followupSeconds converts it until the next install or update saves the settings in seconds
+async function getSettings() {
+  const stored = (await load("settings")) || {};
+  return { ...DEFAULT_SETTINGS, followupSeconds: Modes.followupSeconds(stored), ...stored };
+}
 async function loadAll(prefix) {
   const everything = await chrome.storage.local.get(null);
   return Object.entries(everything).filter(([name]) => name.startsWith(prefix));
@@ -727,7 +732,7 @@ function panelEpisode(record, stage, settings) {
 }
 
 function panelSettings(settings) {
-  return { followupDays: settings.followupDays, updateSeconds: settings.updateSeconds };
+  return { followupSeconds: settings.followupSeconds, updateSeconds: settings.updateSeconds };
 }
 
 // The episode's conversation from its first advice turn (the opening) through turn `end`,
@@ -957,7 +962,7 @@ async function onRatingSubmitted(message) {
     // NOTE: [design thought] the check-in counts from the episode's first request, not from its
     // end or from the answers: an episode can go on for a while, and answers can come days later
     // (one found on another device days later gets it a week after its first answers at the earliest)
-    const dueAt = Math.max(record.openedAt + settings.followupDays * DAY_MS, record.source === "app" ? Date.now() + 7 * DAY_MS : 0);
+    const dueAt = Math.max(record.openedAt + settings.followupSeconds * 1000, record.source === "app" ? Date.now() + 7 * DAY_MS : 0);
     await updateEpisode(record.id, (current) => ({ ...current, checkin: { dueAt, doneAt: null } }));
     chrome.alarms.create(`checkin|${record.id}`, { when: dueAt });
   }
@@ -1100,12 +1105,12 @@ async function updateBadge() {
   await chrome.action.setBadgeBackgroundColor({ color: "#4f5bd5" });
 }
 
-// A question nobody answered by the time the episode's check-in is due (followupDays after its
+// A question nobody answered by the time the episode's check-in is due (followupSeconds after its
 // first request) is dropped: an ended episode never answered goes (with its text), and final
 // answers that never came leave the earlier ones as the final ones.
 async function expireWaiting() {
   const settings = await getSettings();
-  const limit = Date.now() - settings.followupDays * 24 * 3600 * 1000;
+  const limit = Date.now() - settings.followupSeconds * 1000;
   // NOTE: [edge case callout] 0.3 kept no start time, only the end (the update gives a 0.3 record
   // its end as start, but the heartbeat a new worker sends at once can come before that)
   // (an episode from another device counts from when it was found; a past one never annotated goes,
@@ -2004,7 +2009,7 @@ async function offerQueued(view) {
   const pastHeld = (queue.pastMisses ?? 0) >= PAST_MISSES_MAX || recentPast.length >= PAST_INVITES_A_DAY;
   const records = (await loadAll("episode:")).map(([, record]) => record)
     .filter((record) => record.site === view.site && kindOn(settings, record) && !(pastHeld && record.source === "past"));
-  const item = Modes.queueItem(records, now, settings.followupDays, queue.current);
+  const item = Modes.queueItem(records, now, settings.followupSeconds, queue.current);
   // (not about the chat on the screen, nor the next one instead: the participant may be about to go on there)
   if (!item || item.record.chatKey === view.key) return false;
   const invite = { id: item.record.id, site: item.record.site, source: item.record.source ?? "web", stage: item.decision.stage,
@@ -2034,7 +2039,7 @@ async function askQueued(record, rule, settings) {
   const queue = (await load(`qstate:${record.site}`)) || {};
   if (now < (queue.notifiedAt ?? 0) + INVITE_GAP_MS) return false;
   const records = (await loadAll("episode:")).map(([, other]) => other).filter((other) => other.site === record.site && kindOn(settings, other));
-  if (Modes.queueItem(records, now, settings.followupDays, queue.current)?.record.id !== record.id) return false;
+  if (Modes.queueItem(records, now, settings.followupSeconds, queue.current)?.record.id !== record.id) return false;
   chrome.notifications.create(`rate|${record.id}`, {
     type: "basic", iconUrl: "icons/icon128.png", title: "Advice Tracker: a quick question",
     message: `A conversation on ${record.site} looked like a request for advice. Click to answer a few questions (about 5-10 min).`,
@@ -2598,6 +2603,7 @@ chrome.runtime.onInstalled.addListener(async (details) => {
   if (!(await load("installId"))) await save("installId", crypto.randomUUID());
   const wasHolding = Boolean(settings.localOnly);
   delete settings.localOnly;
+  delete settings.followupDays;        // (before 0.6.1; getSettings converted it to followupSeconds)
   await save("settings", settings);
   if (!settings.participantId || wasHolding) chrome.runtime.openOptionsPage();
   // NOTE: [design thought] participants updated from an earlier version see the new, optional reading

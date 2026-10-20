@@ -174,7 +174,7 @@
             ${Questions.render(questions)}
             <div class="actions"><button class="primary" id="submit">${answered ? "Save" : "Submit"}</button></div>
           </div>
-          <div class="note">${answered ? "Your earlier answers are filled in." : `About 5 to 10 minutes now, and a short check-in in ${settings.followupDays} days.`}
+          <div class="note">${answered ? "Your earlier answers are filled in." : `About 5 to 10 minutes now, and a short check-in in ${Questions.duration(settings.followupSeconds)}.`}
             ${Questions.escape(Questions.CONVERSATION_NOTES[episode.text] || Questions.CONVERSATION_NOTES.with_answers)}</div>
         </div>
       </div>`;
