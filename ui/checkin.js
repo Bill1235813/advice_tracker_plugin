@@ -13,11 +13,16 @@
 // Episodes asked about through their site's queue (lib/modes.js viaQueue) appear one per site: the
 // site's current question (queueItem), and the next one once that is answered.
 const STAGES = ["first", "temp", "update", "final", "end"];
+// (for the storage listener at the end: the episodes whose question was answered on this tab, and the
+// settings as this page last read them)
+const answeredHere = new Set();
+let pageSettings = {};
 
 async function main() {
   const params = new URLSearchParams(location.search);
   const stored = await chrome.storage.local.get(null);
   const settings = stored.settings || {};
+  pageSettings = settings;
   const episodes = Object.entries(stored).filter(([name]) => name.startsWith("episode:")).map(([, episode]) => episode)
     .sort((a, b) => a.openedAt - b.openedAt);
   const list = document.getElementById("list");
@@ -28,7 +33,8 @@ async function main() {
   const queued = new Set();
   for (const site of new Set(episodes.map((episode) => episode.site))) {
     const mine = episodes.filter((episode) => episode.site === site && queueKindOn(episode, settings));
-    const opened = mine.find((episode) => episode.id === asked && Modes.viaQueue(episode));
+    // (one this tab was opened for, unless its answers are up to date: nothing new since, lib/modes.js stillDue)
+    const opened = mine.find((episode) => episode.id === asked && Modes.viaQueue(episode) && Modes.stillDue(episode));
     const item = opened ? { record: opened } : Modes.queueItem(mine, now, Modes.followupSeconds(settings), stored[`qstate:${site}`]?.current);
     if (item) queued.add(item.record.id);
   }
@@ -44,8 +50,10 @@ async function main() {
     const checkinDue = Modes.checkinDue(episode, now) ||
       (Modes.checkinDue(episode, Infinity) && ["all", episode.id].includes(params.get("checkin")));
     // waiting for answers (lib/modes.js: an ended episode never answered, final answers still
-    // due, an open episode the participant was asked about), or the one this tab was opened for
-    const requested = params.get("rate") === episode.id && ["open", "pending", "rated"].includes(episode.status);
+    // due, an open episode the participant was asked about), or the one this tab was opened for,
+    // unless its answers are up to date (nothing new since: lib/modes.js stillDue)
+    const requested = params.get("rate") === episode.id && ["open", "pending", "rated"].includes(episode.status) &&
+                      Modes.stillDue(episode);
     if (Modes.waiting(episode) || requested) list.appendChild(ratingCard(episode, requested ? params.get("stage") : null, settings));
     if (checkinDue) list.appendChild(checkinCard(episode, episodes, settings, stored));
   }
@@ -87,6 +95,7 @@ function newCard(episode, kind) {
   const card = document.createElement("form");
   card.className = "card";
   card.id = `card-${kind}-${episode.id}`;
+  card.dataset.versions = episode.versions ?? 0;         // the answers it was built with (see the listener below)
   card.onsubmit = (event) => event.preventDefault();
   return card;
 }
@@ -112,12 +121,14 @@ function ratingCard(episode, asked, settings) {
   Questions.fill(card, questions, episode.answers);
   card.querySelector(".yes").onclick = () => { card.querySelector(".confirm").hidden = true; card.querySelector(".form").hidden = false; };
   card.querySelector(".no").onclick = async () => {
+    answeredHere.add(episode.id);
     await chrome.runtime.sendMessage({ type: "not_advice", id: episode.id });
     card.innerHTML = '<p class="done">Thank you. This conversation was removed from the study.</p>';
   };
   card.querySelector(".submit").onclick = async () => {
     const { answers, missing } = Questions.read(card, questions);
     if (missing.length) { alert("Please answer all the questions marked *."); return; }
+    answeredHere.add(episode.id);
     await chrome.runtime.sendMessage({ type: "rating_submitted", id: episode.id, rating: { ...answers, ratedAt: Date.now() },
                                        stage, start: episode.start, end: episode.end, basedOn: episode.versions });
     // (the follow-up time is 14 days in the study; a tester can shorten it on the settings page)
@@ -174,11 +185,13 @@ function itemCard(episode, settings, now) {
     card.querySelector(".form").hidden = false;
   };
   card.querySelector(".no").onclick = async () => {
+    answeredHere.add(episode.id);
     await chrome.runtime.sendMessage({ type: "card_answer", id: episode.id, answer: "no" });
     done("Thank you. This conversation was removed from the study.");
   };
   for (const button of card.querySelectorAll(".skip")) {
     button.onclick = async () => {
+      answeredHere.add(episode.id);
       await chrome.runtime.sendMessage({ type: "card_answer", id: episode.id, answer: "skip" });
       done("Skipped. This conversation will not be asked about again.");
     };
@@ -186,6 +199,7 @@ function itemCard(episode, settings, now) {
   card.querySelector(".stop")?.addEventListener("click", async (event) => {
     event.preventDefault();
     if (!confirm("Stop reading your past conversations? Those found and not annotated yet are deleted from this computer.")) return;
+    card.dataset.settled = "stopped";              // (its own message stays: see the storage listener)
     const { settings: current = {} } = await chrome.storage.local.get("settings");
     await chrome.storage.local.set({ settings: { ...current, readPast: false } });
     done("Past conversations are no longer read. You can turn this on again in the settings.");
@@ -194,9 +208,11 @@ function itemCard(episode, settings, now) {
     const { answers, missing } = Questions.read(card, questions);
     if (missing.length) { alert("Please answer all the questions marked *."); return; }
     if (past) {
+      answeredHere.add(episode.id);
       await chrome.runtime.sendMessage({ type: "past_submitted", id: episode.id, answers: { ...answers, answeredAt: Date.now() } });
       done("Thank you. Your answers and this conversation were sent.");
     } else {
+      answeredHere.add(episode.id);
       await chrome.runtime.sendMessage({ type: "rating_submitted", id: episode.id, rating: { ...answers, ratedAt: Date.now() },
                                          stage: decision.stage, start: episode.start, end: episode.end, basedOn: episode.versions });
       done(Modes.checkinDue(episode, Date.now()) ? "Thank you."
@@ -244,3 +260,34 @@ function checkinCard(episode, episodes, settings, stored) {
 }
 
 main();
+
+// NOTE: [edge case callout] this tab can stay open while the participant deals with the same question
+// elsewhere (on the chat page, or in another tab). A card whose episode was answered there with nothing
+// new since says so instead of asking again (its answers would be refused as stale); one answered there
+// about an older turn is built again on those answers; one whose question is gone (removed, deleted,
+// no longer read) says it is no longer open. Answers given on this tab's own cards are in answeredHere.
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== "local") return;
+  if (changes.settings) pageSettings = changes.settings.newValue || {};
+  for (const [name, change] of Object.entries(changes)) {
+    if (!name.startsWith("episode:")) continue;
+    const id = name.slice("episode:".length), episode = change.newValue;
+    if (answeredHere.has(id)) continue;
+    for (const kind of ["rate", "item"]) {
+      const card = document.getElementById(`card-${kind}-${id}`);
+      if (!card || card.dataset.settled) continue;
+      if (!episode || episode.status === "removed") {
+        card.dataset.settled = "gone";
+        card.innerHTML = '<p class="done">This question is no longer open.</p>';
+      } else if (episode.versions !== Number(card.dataset.versions)) {
+        if (!Modes.stillDue(episode)) {
+          card.dataset.settled = "elsewhere";
+          card.innerHTML = '<p class="done">Already answered elsewhere: nothing more to do here.</p>';
+        } else {
+          episode.text = conversationGoes(episode, pageSettings);
+          card.replaceWith(kind === "rate" ? ratingCard(episode, null, pageSettings) : itemCard(episode, pageSettings, Date.now()));
+        }
+      }
+    }
+  }
+});

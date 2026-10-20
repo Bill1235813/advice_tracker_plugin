@@ -15,7 +15,16 @@ version (one-click install) is in preparation; until then, follow the steps belo
 
 **How it works, in detail:** [`docs/advice-tracker-design.pdf`](docs/advice-tracker-design.pdf).
 
-## What's new in version 0.6.1 (v0.6 branch)
+## What's new in version 0.6.2 (v0.6 branch)
+
+- **Asked again only after you write more.** In every mode, your answers are asked again (an
+  update, or the final answers) only when you have written more in that conversation since you
+  answered. A 3-minute pause, a move to another conversation, a change of topic or the one-week cut
+  alone asks nothing; if nothing was added since your last answers, they count as your final ones.
+  An update pop-up left on a tab in the background goes away once you answer elsewhere, and a
+  reminder notification goes away once its question is answered.
+
+## What's new in version 0.6.1
 
 - **For testing**: the settings page sets the time until the follow-up check-in in seconds
   (1209600 = 14 days, the study's setting), so a tester can bring the check-in, and the questions
@@ -282,7 +291,7 @@ e-mail.
 
 ## For reviewers and developers
 
-- `manifest.json` (Manifest V3, version 0.6.1): permissions `storage`, `unlimitedStorage` (no
+- `manifest.json` (Manifest V3, version 0.6.2): permissions `storage`, `unlimitedStorage` (no
   install warning), `alarms`, `notifications`, and host permissions for the five chat sites (plus
   `localhost` for the mock test page); no remote code.
 - Past and other-device conversations (0.6, opt-in): `content/history.js` answers the worker's
@@ -313,8 +322,12 @@ e-mail.
   `install_id`). 0.6 adds `source` (web, app, past) to the episode events, `past_annotation`
   (answers + the redacted transcript of a past episode, with a `fingerprint` to pay each once),
   `past_skipped`, `consent` (`feature`, `accepted`, `version`) and the `prompt` kinds `invite` and
-  `card`. The server may answer `GET /config` with `{history: {"<site>": false}}` to stop reading a
-  site. On removal Chrome
+  `card`. 0.6.2: a `prompt` can also end `withdrawn` (the pop-up or invitation was taken away because
+  the participant answered the same question elsewhere), and `episode_transcript` carries
+  `answer_versions` and `final_due`: when a change of topic or the cut closes an answered episode with
+  nothing new since the answers, no final answers are asked (`final_due` false) and the last
+  `episode_rating` stands as the final one. The server may answer `GET /config` with
+  `{history: {"<site>": false}}` to stop reading a site. On removal Chrome
   opens `<server>/uninstalled?participant_id=...&key=...`, which the study server must answer (it
   records an `uninstalled` event).
 - The design document is in `docs/`. The study server, the GPU worker, the tests (unit tests, a

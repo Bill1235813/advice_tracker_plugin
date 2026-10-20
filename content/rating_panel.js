@@ -95,11 +95,12 @@
   }
 
   // The episode as the background sees it now (the conversation may have grown since the request
-  // was made), or null if it is gone (removed meanwhile); the request's own copy if the
-  // background cannot be reached.
-  async function latest(episode) {
+  // was made), or null if it is gone (removed meanwhile) or no longer due (answered meanwhile with
+  // nothing new since: lib/modes.js stillDue; `waited`: a page that waited behind another one, held
+  // to waitedDue); the request's own copy if the background cannot be reached.
+  async function latest(episode, waited = false) {
     try {
-      const reply = await chrome.runtime.sendMessage({ type: "panel_episode", id: episode.id, stage: episode.stage });
+      const reply = await chrome.runtime.sendMessage({ type: "panel_episode", id: episode.id, stage: episode.stage, waited });
       return reply ? reply.episode : episode;
     } catch (error) {
       return episode;
@@ -136,6 +137,12 @@
     const queued = waiting.find((item) => item.episode.id === episode.id);
     if (queued) queued.episode = { ...episode, stage: episode.stage || queued.episode.stage };
     return Boolean(queued);
+  }
+
+  // The participant dealt with this episode elsewhere: its pop-up here goes, unanswered.
+  function closeOffer(id) {
+    const offer = document.getElementById("advice-tracker-offer");
+    if (offer?.dataset.episode === id) offer.withdraw();
   }
 
   // The participant dealt with this episode in another tab: its page here goes.
@@ -217,10 +224,14 @@
       host.remove();
       // a page that goes without an answer ("No", or dealt with in another tab): pop-ups that waited for it come
       send(message ? { ...message, id: current.id } : { type: "panel_gone", id: current.id });
-      // the next page waiting behind this one, as it is now (skipping episodes that are gone)
+      // the next page waiting behind this one, as it is now (skipping episodes that are gone or no
+      // longer due); like any page, it replaces a pop-up that came meanwhile
       for (let next = waiting.shift(); next; next = waiting.shift()) {
-        const fresh = await latest(next.episode);
-        if (fresh) { render(fresh, next.settings); break; }
+        const fresh = await latest(next.episode, true);
+        if (!fresh) continue;
+        document.getElementById("advice-tracker-offer")?.dispatchEvent(new CustomEvent("superseded"));
+        render(fresh, next.settings);
+        break;
       }
     };
     host.finish = finish;
@@ -248,13 +259,14 @@
   // A small pop-up with Yes / No that goes away by itself after settings.updateSeconds of the page
   // being visible; `html` is its text, already escaped. `onYes` runs on Yes; the background hears
   // when it was first seen (offer_seen, counted as `asked`) and the answer (message `reply`: yes,
-  // no, timeout, or superseded when a ratings page takes its place). Returns false when something
-  // is already open.
+  // no, timeout, superseded when a ratings page takes its place, or withdrawn by the background).
+  // Returns false when something is already open.
   // (`labels`: other words on the two buttons, and what each answer is called in the reply)
   function popup(episode, settings, html, asked, reply, onYes, labels = { no: "No", yes: "Yes", answers: { no: "no", yes: "yes" } }) {
     if (document.getElementById("advice-tracker-host") || document.getElementById("advice-tracker-offer")) return false;
     const host = document.createElement("div");
     host.id = "advice-tracker-offer";
+    host.dataset.episode = episode.id;
     const shadow = styled(host);
     shadow.innerHTML = `
       <div class="offer"><b>Advice Tracker</b> (research study)<br>${html}
@@ -285,7 +297,8 @@
         return;
       }
       host.remove();
-      send({ type: reply, id: episode.id, answer: labels.answers[answer] ?? answer });
+      // (with the turns it asked about: the background withdraws its copies on other tabs that ask the same)
+      send({ type: reply, id: episode.id, answer: labels.answers[answer] ?? answer, start: episode.start, end: episode.end });
       if (answer === "yes") onYes();
     };
     byId("yes").onclick = () => finish("yes");
@@ -294,6 +307,13 @@
     const stop = byId("stop");
     if (stop) stop.onclick = (event) => { event.preventDefault(); finish("stop"); };
     host.addEventListener("superseded", () => finish("superseded"));
+    // withdrawn by the background (the participant dealt with the episode elsewhere): it goes, and the
+    // background hears it as the answer "withdrawn" (counted, uploaded, pop-ups that waited for it come)
+    host.withdraw = () => {
+      clearInterval(timer);
+      host.remove();
+      send({ type: reply, id: episode.id, answer: "withdrawn", start: episode.start, end: episode.end });
+    };
     tick();
     markSeen();
     return true;
@@ -353,5 +373,5 @@
                  { no: "Not now", yes: "Open", answers: { no: "later", yes: "open" } });
   }
 
-  root.RatingPanel = { show, refresh, close, offerUpdate, offerTab, offerConfirm, offerInvite };
+  root.RatingPanel = { show, refresh, close, closeOffer, offerUpdate, offerTab, offerConfirm, offerInvite };
 })(self);

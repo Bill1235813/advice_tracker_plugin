@@ -620,7 +620,8 @@ async function episodeClosed(closed, page) {
     // a web episode handed to the walk that no turn from elsewhere joined is asked about by the web's
     // rules again once it ends (as it would have been without the reading)
     if ((current.source ?? "web") === "web" && current.heldBy === "history" && !current.grew) current = { ...current, heldBy: "web", walk: null };
-    const decision = Modes.onClosed(current, closed.closedBy);
+    // (the final answers are due only if the episode, as it closes, has new input since the answers)
+    const decision = Modes.onClosed({ ...current, end: closed.end }, closed.closedBy);
     const waits = Boolean(current.answers) && trackingOff(settings);      // its complete conversation goes once tracking is on
     return decision.status === "delete" ? null : closedRecord(current, decision, closed, text, waits);
   });
@@ -651,7 +652,10 @@ async function sendTranscript(id, messages = null) {
   const { userTurns, replies } = Episodes.splitTurns(claimed.text);
   const redacted = Redact.redactMessages(Episodes.episodeMessages(userTurns, replies, claimed.opening - claimed.start + 1,
                                                                   claimed.end - claimed.start + 1), settings.redactNames);
+  // (answer_versions, final_due: when a change of topic or the cut asked no final answers, because
+  // nothing was new since the answers, the last episode_rating stands as the final one)
   await upload("episode_transcript", { episode: claimed.id, site: claimed.site, source: claimed.source ?? "web", mode: claimed.mode, closed_by: claimed.closedBy,
+                                       answer_versions: claimed.versions, final_due: Modes.pageDue(claimed)?.stage === "final",
                                        turns: claimed.end - claimed.opening + 1, transcript: redacted.messages,
                                        redacted: redacted.counts }, settings);
   return true;
@@ -822,6 +826,9 @@ async function ask(id, rule, view = null) {
   // a page or pop-up counts as asked once it is on the screen (rating_shown, offer_seen)
   if (response?.shown || response?.queued) {
     if (type === "show_panel" && response.shown && !response.refreshed) await count("asked_show_panel");
+    // a pop-up can wait unseen on a tab in the background: its tab and the turn it asks about are
+    // kept, so it can be withdrawn once the participant deals with that turn elsewhere (withdrawOffers)
+    if (type !== "show_panel" && response.shown) await keepOffer(id, tabId, record);
     return true;
   }
   if (rule !== "waitingPage") return false;
@@ -918,14 +925,61 @@ async function onOfferSeen(message) {
 
 // The participant is done with a ratings page (answered, closed, skipped, snoozed, or moved it to
 // a tab): copies of it open in other tabs close, and pop-ups that waited for it come.
-async function panelFinished(id, tabId) {
+async function panelFinished(id, tabId, coveredEnd = Infinity) {
   let others = [];
   await updateEpisode(id, (current) => {
     others = (current.panelTabs || []).filter((tab) => tab !== tabId);
     return { ...current, panelTabs: [] };
   });
   for (const tab of others) chrome.tabs.sendMessage(tab, { type: "close_panel", id }).catch(() => {});
+  await withdrawOffers(id, coveredEnd);
   if (tabId !== undefined) await offerRefused(tabId);
+}
+
+// A pop-up (or an invitation of the queue) is on a tab: its tab, and the episode's first and last turn as
+// they were numbered when it was asked (`record`): pageEnd maps them to the record's numbering later,
+// when older turns loaded above have renumbered the record.
+async function keepOffer(id, tabId, record) {
+  const offer = { tab: tabId, start: record.start, end: record.end };
+  await updateEpisode(id, (current) => ({ ...current, offerTabs: [...(current.offerTabs || []).filter((kept) => kept.tab !== tabId), offer] }));
+}
+
+// The participant dealt with the episode up to its turn `coveredEnd` (answered it, closed or put off its
+// page, answered one of its pop-ups; every turn after "No"): its pop-ups about those turns that still
+// wait on tabs (in the background, unseen) go, so none of them asks the same question again when nothing
+// new has come since. A pop-up about a later turn stays: that turn is new input for it.
+async function withdrawOffers(id, coveredEnd = Infinity) {
+  let tabs = [];
+  await updateEpisode(id, (current) => {
+    if (!current.offerTabs) return current;
+    const covered = (offer) => pageEnd(current, offer) <= coveredEnd;
+    tabs = current.offerTabs.filter(covered).map((offer) => offer.tab);
+    const { offerTabs, ...rest } = current;
+    const kept = offerTabs.filter((offer) => !covered(offer));
+    return kept.length ? { ...rest, offerTabs: kept } : rest;
+  });
+  for (const tab of tabs) chrome.tabs.sendMessage(tab, { type: "close_offer", id }).catch(() => {});
+}
+
+// The episode's last turn that a page or pop-up message is about, in the record's numbering: the end the
+// message carries (a pop-up's, a submitted page's), else the record's own end (closing or putting off a
+// page, an invitation: an open page shows the episode as it is now); every turn after a "No" or when the
+// episode is gone. Answers withdraw nothing here: only once they count (onRatingSubmitted, not when
+// they are refused as stale).
+async function coveredEnd(message) {
+  if (message.type === "not_advice") return Infinity;
+  if (message.type === "rating_submitted") return -Infinity;
+  const record = await load(`episode:${message.id}`);
+  if (!record) return Infinity;
+  return message.end === undefined ? record.end : pageEnd(record, message);
+}
+
+// A pop-up was answered (yes, no, an invitation's open, later or stop, or left to time out on the
+// screen): its copies about the same turns on other tabs go. Superseded by a page, or withdrawn, it
+// was not answered: the copies stay.
+async function offerAnswered(message) {
+  if (!["yes", "no", "timeout", "open", "later", "stop"].includes(message.answer)) return;
+  await withdrawOffers(message.id, await coveredEnd(message));
 }
 
 // Free text leaves the computer only after redaction, like everything else.
@@ -956,6 +1010,9 @@ async function onRatingSubmitted(message) {
   });
   if (stale) await count("stale_answers");
   if (!before) return;
+  // the answers count: pop-ups about the turns they cover go, and so does a notification still in the tray
+  await withdrawOffers(record.id, record.answeredEnd);
+  chrome.notifications.clear(`rate|${record.id}`);
   chrome.alarms.clear(`remind|${record.id}`);
   chrome.alarms.clear(`ask|${record.id}`);
   if (!record.checkin) {
@@ -1024,6 +1081,7 @@ async function removeEpisode(id) {
   });
   if (!gone) return null;
   for (const alarm of ["pause", "ask", "remind", "checkin"]) chrome.alarms.clear(`${alarm}|${id}`);
+  chrome.notifications.clear(`rate|${id}`);
   // one found among conversations read from the site, or held by the walk, is not asked about again
   // if found again
   if (gone.source === "app" || gone.source === "past" || gone.heldBy) await rememberDecided(id);
@@ -1067,8 +1125,8 @@ async function onReminder(id) {
   await ask(id, "waitingPage");
 }
 
-// The update pop-up's outcome: yes (the panel opened on the page), no, no answer in time, or
-// superseded (a ratings page took its place).
+// The update pop-up's outcome: yes (the panel opened on the page), no, no answer in time,
+// superseded (a ratings page took its place), or withdrawn (dealt with elsewhere: withdrawOffers).
 async function onUpdateAnswer(message) {
   const record = await load(`episode:${message.id}`);
   await count(`update_${message.answer}`);
@@ -1078,8 +1136,9 @@ async function onUpdateAnswer(message) {
   }
 }
 
-// The confirm pop-up's outcome (combined mode): yes, no, no answer in time, or superseded (a
-// ratings page took its place, and asks the question itself). Yes spares the later ratings page
+// The confirm pop-up's outcome (combined mode): yes, no, no answer in time, superseded (a
+// ratings page took its place, and asks the question itself), or withdrawn (dealt with elsewhere).
+// Yes spares the later ratings page
 // the question; No is "not advice", as on that page, whose copies in other tabs close too.
 async function onConfirmAnswer(message, tabId) {
   const record = await load(`episode:${message.id}`);
@@ -2020,6 +2079,7 @@ async function offerQueued(view) {
     response = await chrome.tabs.sendMessage(view.tabId, { type: "offer_invite", invite, settings: panelSettings(settings) });
   } catch (error) { /* tab closed, or a page without the content script */ }
   if (!response?.shown) return false;
+  await keepOffer(item.record.id, view.tabId, item.record);
   const past = item.record.source === "past";
   await save(`qstate:${view.site}`, { ...queue, invitedAt: now, current: item.record.id, pastTimes: past ? [...recentPast, now] : recentPast });
   await updateEpisode(item.record.id, (current) => ({ ...current, invites: (current.invites || 0) + 1 }));
@@ -2050,7 +2110,8 @@ async function askQueued(record, rule, settings) {
 }
 
 // The invitation's outcome: open (the extension tab opens), later or timeout (the next one comes after
-// INVITE_GAP_MS; for a past one, a miss), stop (no more past conversations: readPast off), superseded
+// INVITE_GAP_MS; for a past one, a miss), stop (no more past conversations: readPast off), superseded,
+// or withdrawn (answered elsewhere: not a miss)
 async function onInviteAnswer(message, tabId) {
   // NOTE: [edge case callout] the settings are read and written at once, before anything slow (an
   // upload): a pause or exclusion made meanwhile on the settings page must not be undone
@@ -2067,7 +2128,8 @@ async function onInviteAnswer(message, tabId) {
       await save(`qstate:${record.site}`, { ...queue, pastMisses: message.answer === "open" ? 0 : (queue.pastMisses ?? 0) + (miss ? 1 : 0) });
     });
   }
-  if (message.answer === "open") openCheckin(`?item=${encodeURIComponent(message.id)}`);
+  // (an invitation answered elsewhere meanwhile, with nothing new since, opens the list instead)
+  if (message.answer === "open") openCheckin(record && Modes.stillDue(record) ? `?item=${encodeURIComponent(message.id)}` : "");
   if (message.answer !== "open") await offerRefused(tabId);
 }
 
@@ -2461,8 +2523,14 @@ function openCheckin(query) {
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   // the two messages whose callers wait for an answer
   if (message.type === "panel_episode") {
+    // NOTE: [design thought] a page that waited behind another one (`waited`), and the update pop-up's
+    // Yes, ask here for the episode as it is now; a question that is no longer due (removed, or
+    // answered meanwhile with nothing new since: lib/modes.js stillDue, waitedDue) is not shown at all
     Promise.all([load(`episode:${message.id}`), getSettings()])
-      .then(([record, settings]) => sendResponse({ episode: record ? panelEpisode(record, message.stage, settings) : null }));
+      .then(([record, settings]) => {
+        const due = record && record.status !== "removed" && (message.waited ? Modes.waitedDue(record) : Modes.stillDue(record));
+        sendResponse({ episode: due ? panelEpisode(record, message.stage, settings) : null });
+      });
     return true;
   }
   if (message.type === "delete_all") {
@@ -2475,7 +2543,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   sendResponse({ ok: true });
   const tabId = sender.tab?.id;
   // what the participant did with a ratings page: first close its copies in other tabs
-  const finished = (then) => panelFinished(message.id, tabId).then(() => then(message));
+  const finished = (then) => coveredEnd(message).then((end) => panelFinished(message.id, tabId, end)).then(() => then(message));
   switch (message.type) {
     case "snapshot": onSnapshot(message, sender); break;
     case "view": onView(message, sender); break;
@@ -2490,11 +2558,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       finished(() => openCheckin(`?rate=${encodeURIComponent(message.id)}&stage=${encodeURIComponent(message.stage || "")}`));
       break;
     case "checkin_submitted": onCheckinSubmitted(message); break;
-    case "update_answer": onUpdateAnswer(message).then(() => offerRefused(tabId)); break;
-    case "confirm_answer": onConfirmAnswer(message, tabId); break;
-    case "invite_answer": onInviteAnswer(message, tabId); break;
-    case "card_answer": onCardAnswer(message); break;
-    case "past_submitted": onPastSubmitted(message); break;
+    case "update_answer": offerAnswered(message).then(() => onUpdateAnswer(message)).then(() => offerRefused(tabId)); break;
+    case "confirm_answer": offerAnswered(message).then(() => onConfirmAnswer(message, tabId)); break;
+    case "invite_answer": offerAnswered(message).then(() => onInviteAnswer(message, tabId)); break;
+    // (the extension tab's card: an answer that ends the question withdraws its invitations too)
+    case "card_answer": (["no", "skip"].includes(message.answer) ? withdrawOffers(message.id) : Promise.resolve()).then(() => onCardAnswer(message)); break;
+    case "past_submitted": withdrawOffers(message.id).then(() => onPastSubmitted(message)); break;
     case "flush": flushQueue(); break;
     case "held": onHeld(message); break;
     case "panel_gone": offerRefused(tabId); break;              // a page went without an answer ("No", or dealt with elsewhere)
@@ -2525,10 +2594,14 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   else if (kind === "heartbeat") await heartbeatIfDue();
 });
 
-chrome.notifications.onClicked.addListener((id) => {
+chrome.notifications.onClicked.addListener(async (id) => {
   const [kind, episode] = id.split("|");
   chrome.notifications.clear(id);
-  openCheckin(kind === "rate" ? `?rate=${encodeURIComponent(episode)}` : `?checkin=${encodeURIComponent(episode)}`);
+  if (kind !== "rate") return openCheckin(`?checkin=${encodeURIComponent(episode)}`);
+  // NOTE: [edge case callout] a notification can stay in the tray after its question was answered
+  // another way: with nothing new since, it opens the list of what waits, not the episode again
+  const record = await load(`episode:${episode}`);
+  openCheckin(record && Modes.stillDue(record) ? `?rate=${encodeURIComponent(episode)}` : "");
 });
 
 // After a browser restart (alarms may be lost) or an update: restart the timers of the episodes,

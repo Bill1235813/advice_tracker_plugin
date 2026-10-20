@@ -423,6 +423,8 @@
       sendResponse(RatingPanel.offerInvite(message.invite, message.settings) ? { shown: true } : { busy: true });
     } else if (message.type === "close_panel") {
       RatingPanel.close(message.id);
+    } else if (message.type === "close_offer") {
+      RatingPanel.closeOffer(message.id);
     } else if (message.type === "forget") {
       // "delete all data": the turns sent on this page so far are history from now on (the
       // background waits for this answer before it takes snapshots again)
