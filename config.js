@@ -7,7 +7,7 @@ const STUDY_CONFIG = {
 };
 // ratingMode: when to ask about an advice episode by default ("frequent" | "switching" |
 // "periodical" | "combined", see lib/modes.js); the settings page can change it per computer.
-STUDY_CONFIG.ratingMode = "switching";
+STUDY_CONFIG.ratingMode = "combined";
 // Past conversations (settings page, opt-in): how far back before joining they are read, how many may
 // be found (waiting or annotated), and what each annotation earns (the pop-up says so).
 STUDY_CONFIG.pastLookbackDays = 90;

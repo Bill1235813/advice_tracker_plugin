@@ -35,7 +35,7 @@ importScripts("config.js", "lib/sites.js", "lib/episodes.js", "lib/modes.js", "l
 
 const DEFAULT_SETTINGS = {
   participantId: "", serverUrl: STUDY_CONFIG.serverUrl, studyKey: STUDY_CONFIG.studyKey, paused: false, pausedAt: null,
-  ratingMode: STUDY_CONFIG.ratingMode || "switching",     // "frequent" | "switching" | "periodical" | "combined"
+  ratingMode: STUDY_CONFIG.ratingMode || "combined",      // "frequent" | "switching" | "periodical" | "combined"
   followupSeconds: 14 * 24 * 3600,   // the check-in this long after an episode's first request (the settings page can shorten it for a test)
   endQuietMinutes: 24 * 60,    // an episode also ends after this long without activity in its chat
   cutDays: 7,                  // ... and is complete this many days after its first request (as at a change of topic)

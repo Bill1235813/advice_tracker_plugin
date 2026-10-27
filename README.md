@@ -15,7 +15,16 @@ version (one-click install) is in preparation; until then, follow the steps belo
 
 **How it works, in detail:** [`docs/advice-tracker-design.pdf`](docs/advice-tracker-design.pdf).
 
-## What's new in version 0.6.3 (v0.6 branch)
+## What's new in version 0.6.4 (v0.6 branch)
+
+- **The study's way of asking is now *Combined*** (it was *Switching*): right after the assistant's
+  first answer to an advice message, a small pop-up asks only "Did you ask for advice here?", and
+  the questions come at a 3-minute pause, a move to another conversation or a change of topic,
+  whichever is first (more under "What's new in version 0.4.2"). A new install starts with it; an
+  install updated from an earlier version keeps the way of asking it had, which its settings page
+  shows and can change.
+
+## What's new in version 0.6.3
 
 - **Scrolling up in a long conversation no longer asks again.** When older messages load above as
   you scroll up and one of them repeats a question you asked here (the same question asked a month
@@ -98,7 +107,8 @@ version (one-click install) is in preparation; until then, follow the steps belo
 
 ## What's new in version 0.4.2
 
-- **A fourth way of asking, *Combined***, chosen in the settings like the other three:
+- **A fourth way of asking, *Combined***, chosen in the settings like the other three (the default
+  since 0.6.4):
   - Right after the assistant's first answer to an advice message, a small pop-up asks only
     **"Did you ask for advice here?"** (No removes the conversation, as on the panel). It closes
     by itself after 30 seconds; if you do not answer it, the panel asks it again later.
@@ -124,8 +134,8 @@ version (one-click install) is in preparation; until then, follow the steps belo
   advice conversation"); a conversation already under way keeps the way it started with:
   - *Frequent*: the questions right after your first advice message; after each follow-up, a
     small pop-up asks whether you want to update your answers (it disappears after 30 seconds).
-  - *Switching* (the default): when you move to another conversation, a first set of answers you
-    can update later; when you change the topic, your final answers.
+  - *Switching* (the default until 0.6.4): when you move to another conversation, a first set of
+    answers you can update later; when you change the topic, your final answers.
   - *Periodical*: at the first 3-minute pause in the conversation; later pauses offer an update.
 - **Personal details are removed on your computer before anything is sent**: e-mail addresses,
   phone numbers, web addresses, long numbers (cards, accounts), social security numbers, street
@@ -184,13 +194,13 @@ extension loaded this way.
    **new** chat, and ask for advice about a decision as you normally would, for example:
    *"I have two job offers, one pays more but the other is closer to family. Which should I
    take?"*. Let the assistant answer; ask a follow-up if you like.
-2. With the default *Switching* mode, then either start a new chat (the panel asks for a first
-   set of answers) or change the subject in the same chat (*"Unrelated: what is the capital of
-   Peru?"*; the panel asks for your final answers). With *Frequent*, the panel appears right after
-   the assistant's first answer; with *Periodical*, after 3 minutes without typing. With
-   *Combined*, a small pop-up asks only "Did you ask for advice here?" right after the assistant's
-   first answer, and the panel comes after 3 minutes without typing, a new chat, or a change of
-   subject, whichever is first.
+2. With the default *Combined* mode, a small pop-up asks only "Did you ask for advice here?" right
+   after the assistant's first answer, and the panel comes after 3 minutes without typing, a new
+   chat, or a change of subject (*"Unrelated: what is the capital of Peru?"*), whichever is first.
+   With *Switching*, start a new chat (the panel asks for a first set of answers) or change the
+   subject in the same chat (the panel asks for your final answers). With *Frequent*, the panel
+   appears right after the assistant's first answer; with *Periodical*, after 3 minutes without
+   typing.
 3. A small **Quick check-in** panel appears at the bottom right of the chat page. The panel
    quotes your request and asks **"Did you ask for advice here?"** (in *Combined* mode only if you
    did not answer Yes in the pop-up).
