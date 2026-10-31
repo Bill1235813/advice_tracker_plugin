@@ -15,7 +15,14 @@ version (one-click install) is in preparation; until then, follow the steps belo
 
 **How it works, in detail:** [`docs/advice-tracker-design.pdf`](docs/advice-tracker-design.pdf).
 
-## What's new in version 0.6.4 (v0.6 branch)
+## What's new in version 0.6.5 (v0.6 branch)
+
+- **The study server moved to university computers**, next to the study's AI model (it ran on
+  a hosted service). A new install uses its new address; an install updated from an earlier
+  version that still has the old address moves to the new one by itself. An address typed under
+  "Advanced" on the settings page stays.
+
+## What's new in version 0.6.4
 
 - **The study's way of asking is now *Combined*** (it was *Switching*): right after the assistant's
   first answer to an advice message, a small pop-up asks only "Did you ask for advice here?", and
@@ -310,7 +317,7 @@ e-mail.
 
 ## For reviewers and developers
 
-- `manifest.json` (Manifest V3, version 0.6.3): permissions `storage`, `unlimitedStorage` (no
+- `manifest.json` (Manifest V3, version 0.6.5): permissions `storage`, `unlimitedStorage` (no
   install warning), `alarms`, `notifications`, and host permissions for the five chat sites (plus
   `localhost` for the mock test page); no remote code.
 - Past and other-device conversations (0.6, opt-in): `content/history.js` answers the worker's
@@ -328,7 +335,8 @@ e-mail.
   update and confirm pop-ups) when the rating mode in `lib/modes.js` says so; `lib/redact.js` removes
   personal details from everything sent; `ui/checkin.html` holds pending questions and the two-week
   check-in; `lib/questions.js` has every question (all required); `config.js` holds the server URL
-  and study key.
+  and study key, and the servers used before (an update moves an install that still has one of
+  them to the current server).
 - Uploads (`POST /events`): `episode_rating` (answers + the redacted transcript from the opening
   turn through the answered one), `episode_transcript` (the complete redacted transcript from the
   opening turn, when an answered episode ends, or when tracking is on again if it ended while

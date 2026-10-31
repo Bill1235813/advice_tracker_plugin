@@ -2669,6 +2669,12 @@ chrome.runtime.onInstalled.addListener(async (details) => {
   // NOTE: [edge case callout] before 0.4 an episode ended after 10 quiet minutes; episodes now
   // last until the topic changes or a day goes by, so the old default is replaced
   if (details.reason === "update" && settings.endQuietMinutes === 10) settings.endQuietMinutes = DEFAULT_SETTINGS.endQuietMinutes;
+  // NOTE: [edge case callout] an install saves the server address with its settings, so an update keeps
+  // it: one that still has a study server used before moves to the current one (0.6.5), while an
+  // address typed on the settings page (a test server, say) stays
+  if (details.reason === "update" && (STUDY_CONFIG.retiredServerUrls || []).includes(settings.serverUrl)) {
+    settings.serverUrl = DEFAULT_SETTINGS.serverUrl;
+  }
   // NOTE: [design thought] the update to 0.5 keeps the promises earlier versions made:
   // - "Hold my answers on this computer" is gone, but what it held is not sent without asking: it
   //   waits under "held", with the episodes it belongs to, and the settings page (opened now)

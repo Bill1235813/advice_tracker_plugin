@@ -1,10 +1,13 @@
-// Study-wide settings baked into the extension before it is handed to participants, so the
-// only thing a participant types is their participant ID. Fill in the hosted server's URL
-// and the study key after deploying the Space (plugin/README.md, "Hosting the server").
+// Study-wide settings baked into the extension before it is handed to participants (the study
+// server's URL and the study key), so the only thing a participant types is their participant ID.
 const STUDY_CONFIG = {
-  serverUrl: "https://bill1235813-advice-tracker.hf.space",
+  serverUrl: "https://advice-relay.tail48c3b3.ts.net",
   studyKey: "lEHEDGTSxNbcgtB6mmcBV2kMoLFLwKSX",
 };
+// Study servers used before (0.6.5: the server moved off Hugging Face): an install updated from an
+// earlier version that still has one of these saved moves to serverUrl; an address typed on the
+// settings page stays.
+STUDY_CONFIG.retiredServerUrls = ["https://bill1235813-advice-tracker.hf.space"];
 // ratingMode: when to ask about an advice episode by default ("frequent" | "switching" |
 // "periodical" | "combined", see lib/modes.js); the settings page can change it per computer.
 STUDY_CONFIG.ratingMode = "combined";
