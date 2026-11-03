@@ -1397,7 +1397,9 @@ async function historyReply(host, request, reply) {
       await save(`hist:${key}`, { ...hist, failedU: request.listedU, failures, retryAt: now + 10 * 60000 * 2 ** (failures - 1) });
     });
   }
-  if (!reply) return pause(10 * 60000);
+  // (noAnswer: the page stayed silent, usually a tab from before the install or an update that has no
+  // content script; kept past the pause, so the check-in page keeps asking for a refresh until a tab answers)
+  if (!reply) return pause(10 * 60000, { noAnswer: true });
   if (!reply.ok) {
     if (reply.status === 429) {
       const wait = Math.min(Math.max(state.backoffMs ? 2 * state.backoffMs : 30 * 60000, reply.retryAfterMs ?? 0), 6 * 3600 * 1000);
@@ -1416,7 +1418,7 @@ async function historyReply(host, request, reply) {
   if (!account || reply.personal !== true || (bound && bound !== account)) return pause(3600 * 1000, { otherAccount: true });
   if (request.what === "list" && reply.accountKnown === false && !(await sameAccount(host, reply.page))) return pause(3600 * 1000, { otherAccount: true });
   if (!bound) await save(`haccount:${host}`, account);
-  await save(`hstate:${host}`, { ...state, backoffMs: 0, signedOut: false, otherAccount: false, waitUntil: 0 });
+  await save(`hstate:${host}`, { ...state, backoffMs: 0, signedOut: false, otherAccount: false, noAnswer: false, waitUntil: 0 });
   if (request.what === "list") return mergeList(host, request, reply.page);
   if (reply.gone) return forgetConversation(host, request.id, request.listedU);
   if (reply.tooLong) {
@@ -2359,6 +2361,39 @@ async function keepHeartbeatAlarm() {
   chrome.alarms.create("heartbeat", { when: next, periodInMinutes: HEARTBEAT_MINUTES });
 }
 
+// ---- a reminder while tracking stays paused ----
+// NOTE: [design thought] a pause is easy to forget: nothing else tells the participant that nothing
+// is being recorded. A notification comes pausedReminderDays after the pause began, and again after
+// as many more days while it stays paused; "Resume tracking" on it resumes, "Stay paused" waits for
+// the next one. The alarm is created only when missing (timed from pausedAt, so a worker restart
+// keeps the grid) and cleared whenever tracking is not paused.
+const PAUSED_REMINDER_DAYS = STUDY_CONFIG.pausedReminderDays ?? 5;
+async function keepPausedReminder() {
+  const settings = await getSettings();
+  if (!settings.paused || !settings.participantId) {
+    await chrome.alarms.clear("pausedReminder");
+    chrome.notifications.clear("paused");
+    return;
+  }
+  if (await chrome.alarms.get("pausedReminder")) return;
+  const since = settings.pausedAt || Date.now();
+  chrome.alarms.create("pausedReminder", { when: Math.max(since + PAUSED_REMINDER_DAYS * DAY_MS, Date.now() + 60000),
+                                           periodInMinutes: PAUSED_REMINDER_DAYS * 24 * 60 });
+}
+
+async function remindPaused() {
+  const settings = await getSettings();
+  if (!settings.paused) return keepPausedReminder();          // resumed meanwhile: the alarm goes
+  const days = Math.max(1, Math.round((Date.now() - (settings.pausedAt || Date.now())) / DAY_MS));
+  chrome.notifications.create("paused", {
+    type: "basic", iconUrl: "icons/icon128.png", title: "Advice Tracker: tracking is still paused",
+    message: `You paused tracking ${days} day${days === 1 ? "" : "s"} ago. Nothing is recorded while it is paused. Resume when you are ready.`,
+    buttons: [{ title: "Resume tracking" }, { title: "Stay paused" }],
+    requireInteraction: true,
+  });
+  await count("reminded_paused");
+}
+
 // A change of what is tracked (paused or resumed, sites excluded or access withheld, the
 // participant ID set) is reported at once, so the study sees when it happened, not only at the
 // next heartbeat.
@@ -2595,6 +2630,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     case "flush": flushQueue(); break;
     case "held": onHeld(message); break;
     case "panel_gone": offerRefused(tabId); break;              // a page went without an answer ("No", or dealt with elsewhere)
+    case "open_help": openCheckin("#advice"); break;            // "what counts as advice?" on a chat page
   }
 });
 
@@ -2620,16 +2656,26 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
     await updateBadge();
   } else if (kind === "flush") await flushQueue();
   else if (kind === "heartbeat") await heartbeatIfDue();
+  else if (kind === "pausedReminder") await remindPaused();
 });
 
 chrome.notifications.onClicked.addListener(async (id) => {
   const [kind, episode] = id.split("|");
   chrome.notifications.clear(id);
+  if (kind === "paused") return chrome.runtime.openOptionsPage();
   if (kind !== "rate") return openCheckin(`?checkin=${encodeURIComponent(episode)}`);
   // NOTE: [edge case callout] a notification can stay in the tray after its question was answered
   // another way: with nothing new since, it opens the list of what waits, not the episode again
   const record = await load(`episode:${episode}`);
   openCheckin(record && Modes.stillDue(record) ? `?rate=${encodeURIComponent(episode)}` : "");
+});
+
+chrome.notifications.onButtonClicked.addListener(async (id, button) => {
+  if (id !== "paused") return;
+  chrome.notifications.clear(id);
+  await count(button === 0 ? "paused_reminder_resume" : "paused_reminder_stay");
+  // (the settings change resumes tracking the way the popup does, and clears the reminder's alarm)
+  if (button === 0) await updateSettings({ paused: false, pausedAt: null });
 });
 
 // After a browser restart (alarms may be lost) or an update: restart the timers of the episodes,
@@ -2735,7 +2781,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
   const before = changes.settings.oldValue, after = changes.settings.newValue;
   const differs = (field) => JSON.stringify(before[field]) !== JSON.stringify(after[field]);
   if (["participantId", "paused", "excludedHosts", "serverUrl", "studyKey"].some(differs)) {
-    (after.participantId ? noteJoined() : Promise.resolve()).then(statusChanged);
+    (after.participantId ? noteJoined() : Promise.resolve()).then(statusChanged).then(keepPausedReminder);
   }
   if (differs("excludedHosts")) forgetExcluded();
   // reading past conversations, or those from other devices, turned on or off: recorded (with the
@@ -2757,5 +2803,6 @@ chrome.permissions.onRemoved.addListener(statusChanged);
 // whenever the worker starts: a heartbeat if one is due, its alarm is there, and the uninstall
 // address is current
 heartbeatIfDue().then(keepHeartbeatAlarm);
+keepPausedReminder();
 noteAlive();
 getSettings().then(setUninstallUrl);

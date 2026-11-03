@@ -16,6 +16,9 @@ STUDY_CONFIG.ratingMode = "combined";
 STUDY_CONFIG.pastLookbackDays = 90;
 STUDY_CONFIG.pastLimit = 20;
 STUDY_CONFIG.pastReward = "$2";
+// A participant who leaves tracking paused gets a Chrome notification after this many days, and again
+// after as many more while it stays paused (clicking "Resume tracking" on it resumes).
+STUDY_CONFIG.pausedReminderDays = 5;
 // The sites whose conversation list can be read (a reader in lib/history/<site>.js); the version of
 // the consent text on the settings page (uploaded with each consent). A participant's past ends when
 // they first installed the extension (the study server's first event of their ID, if earlier).

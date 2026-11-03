@@ -17,6 +17,27 @@ const STAGES = ["first", "temp", "update", "final", "end"];
 // settings as this page last read them)
 const answeredHere = new Set();
 let pageSettings = {};
+// how many questions wait in each site's queue (the page shows one at a time): for the "1 of N" line
+let queueCounts = {};
+
+function countQueued(episodes, settings) {
+  const counts = {};
+  for (const episode of episodes) {
+    if (!Modes.viaQueue(episode) || ["done", "removed"].includes(episode.status) || (episode.source === "past" && episode.answers) ||
+        !queueKindOn(episode, settings)) continue;
+    counts[episode.site] = (counts[episode.site] || 0) + 1;
+  }
+  return counts;
+}
+
+// NOTE: [design thought] the badge on the icon counts every question waiting, the page shows one per
+// site: without this line, "4" on the icon and one card here look like a fault
+function queueLine(episode) {
+  const n = queueCounts[episode.site] || 1;
+  const what = episode.source === "past" ? "past conversation" : "conversation from elsewhere";
+  return n === 1 ? `1/1 ${what} awaiting labeling` : `1/${n} ${what}s awaiting labeling`;
+}
+const QUEUE_SUB = "The next conversation will appear once you label this one.";
 
 async function main() {
   const params = new URLSearchParams(location.search);
@@ -27,6 +48,7 @@ async function main() {
     .sort((a, b) => a.openedAt - b.openedAt);
   const list = document.getElementById("list");
   const now = Date.now();
+  queueCounts = countQueued(episodes, settings);
   // one question per site from its queue: the one an invitation (or a notification) opened this tab
   // for, else the site's current one
   const asked = params.get("item") || params.get("rate");
@@ -111,7 +133,7 @@ function ratingCard(episode, asked, settings) {
   const stage = STAGES.includes(asked) ? asked : Modes.pageDue(episode)?.stage || (answered ? "update" : "first");
   card.innerHTML = `<h2>${Questions.escape(episode.site)} · ${new Date(episode.closedAt || episode.openedAt).toLocaleString()}</h2>
     <p class="meta">It looked like you asked the AI for advice here:</p>${quote(episode.openingText)}
-    <div class="confirm" ${confirmed ? "hidden" : ""}><b>Did you ask for advice here?</b><br>
+    <div class="confirm" ${confirmed ? "hidden" : ""}><b>Did you ask for advice here?</b> <a class="whatis" href="#advice">what counts as advice?</a><br>
       <button type="button" class="yes">Yes</button> <button type="button" class="secondary no">No</button></div>
     ${answered ? '<p class="meta">Your earlier answers are filled in; change any that are different now.</p>' : ""}
     <div class="form" ${confirmed ? "" : "hidden"}>
@@ -158,13 +180,16 @@ function itemCard(episode, settings, now) {
     : episode.source === "app" ? `On ${when} you had this conversation, which was not recorded as it happened (for example on your phone or another device):`
     : `On ${when} you asked the AI for advice here${ended ? " (this conversation has ended)" : ""}:`;
   const review = past ? Questions.transcript((episode.messages || []).slice(transcriptFrom(episode)), settings.redactNames || []) : null;
+  card.classList.add("has-queue");
   card.innerHTML = `<h2>${Questions.escape(episode.site)} · ${Questions.escape(when)}${episode.title ? ` · “${Questions.escape(episode.title)}”` : ""}</h2>
-    <p class="meta">${Questions.escape(intro)}</p>${quote(episode.openingText || "")}
+    <div class="queue-box"><span class="queue-count" data-site="${Questions.escape(episode.site)}" data-source="${Questions.escape(episode.source || "web")}">${Questions.escape(queueLine(episode))}</span>
+      <small>${Questions.escape(QUEUE_SUB)}</small></div>
+    <p class="meta intro">${Questions.escape(intro)}</p>${quote(episode.openingText || "")}
     <p class="meta"><a href="${Questions.escape(episode.url)}" target="_blank" rel="noopener">Open this conversation on ${Questions.escape(episode.site)}</a></p>
     ${past ? `<p class="meta"><b>You can earn ${Questions.escape(STUDY_CONFIG.pastReward)} for annotating this past conversation</b>
       (up to ${STUDY_CONFIG.pastLimit} conversations; about 5-10 minutes). Answer No or Skip if it was not advice: that is fine, and never
       affects your participation. <a href="#" class="stop">Stop asking about past conversations</a></p>` : ""}
-    <div class="confirm" ${confirmed ? "hidden" : ""}><b>Did you ask the AI for advice about your own situation in this conversation?</b><br>
+    <div class="confirm" ${confirmed ? "hidden" : ""}><b>Did you ask the AI for advice about your own situation in this conversation?</b> <a class="whatis" href="#advice">what counts as advice?</a><br>
       <button type="button" class="yes">Yes</button> <button type="button" class="secondary no">No</button>
       ${past ? '<button type="button" class="secondary skip">Skip this one</button>' : ""}</div>
     ${answered ? '<p class="meta">Your earlier answers are filled in; change any that are different now.</p>' : ""}
@@ -260,6 +285,72 @@ function checkinCard(episode, episodes, settings, stored) {
 }
 
 main();
+renderReading();
+setInterval(renderReading, 60000);           // (a pause the site asked for runs out; a tab was opened)
+
+// ---- how reading the sites goes (0.6 opt-in): one line per site, in plain words ----
+// The background keeps each site's reading state in storage (hstate:<host>: a pause the site asked for,
+// signed out, another account, blocked; hlist:<host>: the conversations listed; hist:<host>/<id>: the
+// ones read). Nothing else shows it to the participant, so a reading that stopped would otherwise look
+// like one that found nothing. The same words the study team sees in the heartbeat (background.js
+// historyStates), spelled out with what to do.
+async function readingStatus(stored) {
+  const settings = { ...stored.settings }, now = Date.now();
+  const lines = [];
+  if (!settings.readPast && !settings.readApps) return { lines, note: "Off. You can turn it on in the extension's settings." };
+  const excluded = (host) => (settings.excludedHosts || []).some((entry) => host === entry || host.endsWith(`.${entry}`));
+  const config = stored.hconfig || {};
+  const time = (at) => new Date(at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  for (const host of STUDY_CONFIG.historySites || []) {
+    const name = SITE_CONFIGS[host]?.name || host;
+    const state = stored[`hstate:${host}`] || null;
+    const list = stored[`hlist:${host}`] || null;
+    const read = Object.keys(stored).filter((key) => key.startsWith(`hist:${host}/`)).length;
+    const found = Object.values(stored).filter((record) => record && record.site === name && record.source === "past" && record.chatKey).length;
+    let tabs = [];
+    try { tabs = await chrome.tabs.query({ url: `https://${host}/*` }); } catch (error) { /* no tab access: say nothing about tabs */ }
+    let kind = "state", text;
+    if (!settings.participantId) text = "not started: enter your participant ID in the settings";
+    else if (settings.paused) text = "paused (resume tracking from the extension's icon)";
+    else if (excluded(host)) text = "off: you excluded this site";
+    else if (config.history?.[host] === false) text = "switched off by the study team for now";
+    else if (state?.blocked) { kind = "warn"; text = "stopped by the site until Chrome is restarted"; }
+    else if (state?.otherAccount) { kind = "warn"; text = "stopped: not a personal account. Please sign in with your personal account and refresh the page"; }
+    else if (state?.signedOut) { kind = "warn"; text = "stopped: signed out. Please sign in and refresh the page"; }
+    else if ((state?.waitUntil ?? 0) > now && state?.backoffMs) text = `paused by the site until ${time(state.waitUntil)}`;
+    // (any one tab answering is enough: the background tries each until one does)
+    else if (state?.noAnswer || (state?.waitUntil ?? 0) > now) { kind = "warn"; text = tabs.length > 1 ? `please refresh one of your ${tabs.length} ${name} tabs` : `please refresh your ${name} tab`; }
+    // a site with no tab and nothing read yet is one the participant may not use: not listed
+    else if (!tabs.length && !state && !list) continue;
+    else if (!tabs.length) text = "not open right now";
+    // (Chrome puts an unused tab to sleep; the background skips it, as it cannot answer)
+    else if (tabs.every((tab) => tab.discarded)) {
+      text = tabs.length > 1 ? `your ${tabs.length} ${name} tabs are asleep: please click one to wake it up` : `your ${name} tab is asleep: please click it to wake it up`;
+    }
+    else if (!list) text = "waiting its turn";
+    else {
+      kind = "ok";
+      const listed = list.items?.length ?? 0, checked = Math.min(read, listed);
+      text = `${list.end && checked >= listed ? "done" : "reading"}: ${checked}/${listed} conversations checked for advice. ${found} advice detected.`;
+    }
+    lines.push({ name, kind, text });
+  }
+  const names = (STUDY_CONFIG.historySites || []).map((host) => SITE_CONFIGS[host]?.name || host);
+  return { lines, note: lines.length ? null : `Open ${names.slice(0, -1).join(", ")} or ${names.at(-1)} to start.` };
+}
+
+async function renderReading() {
+  const box = document.getElementById("reading");
+  if (!box) return;
+  const stored = await chrome.storage.local.get(null);
+  queueCounts = countQueued(Object.entries(stored).filter(([name]) => name.startsWith("episode:")).map(([, episode]) => episode), stored.settings || {});
+  for (const line of document.querySelectorAll(".queue-count")) line.textContent = queueLine({ site: line.dataset.site, source: line.dataset.source });
+  const { lines, note } = await readingStatus(stored);
+  box.hidden = false;
+  box.innerHTML = `<h2>Past conversations status</h2>` +
+    (lines.length ? `<ul>${lines.map((line) => `<li><b>${Questions.escape(line.name)}</b> <span class="${line.kind}">${Questions.escape(line.text)}</span></li>`).join("")}</ul>` : "") +
+    (note ? `<p class="note">${Questions.escape(note)}</p>` : "");
+}
 
 // NOTE: [edge case callout] this tab can stay open while the participant deals with the same question
 // elsewhere (on the chat page, or in another tab). A card whose episode was answered there with nothing
@@ -269,6 +360,7 @@ main();
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== "local") return;
   if (changes.settings) pageSettings = changes.settings.newValue || {};
+  if (Object.keys(changes).some((name) => /^(settings|hconfig|hstate:|hlist:|hist:|qstate:|episode:)/.test(name))) renderReading();
   for (const [name, change] of Object.entries(changes)) {
     if (!name.startsWith("episode:")) continue;
     const id = name.slice("episode:".length), episode = change.newValue;

@@ -1,7 +1,12 @@
 body { margin: 0; background: #fafaf8; color: #1f2328; font: 14px/1.5 system-ui, sans-serif; }
 .wrap { max-width: 780px; margin: 0 auto; padding: 24px; }
 h1 { font-size: 20px; margin: 0 0 4px; } .sub { color: #647084; margin-top: 0; }
-.card { background: #fff; border: 1px solid #e4e4de; border-radius: 10px; padding: 16px 18px; margin: 14px 0; }
+.card { position: relative; background: #fff; border: 1px solid #e4e4de; border-radius: 10px; padding: 16px 18px; margin: 14px 0; }
+/* how many wait in the site's queue (the page shows one at a time): a small box in the card's corner */
+.queue-box { position: absolute; top: 12px; right: 14px; width: 262px; background: #fff7e6; border: 1px solid #f0d9a8; border-radius: 8px; padding: 6px 9px; font-size: 11.5px; line-height: 1.35; color: #7a4b00; }
+.queue-box .queue-count { display: block; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } .queue-box small { display: block; font-size: 10.5px; color: #9a6a1f; margin-top: 2px; }
+.card.has-queue h2, .card.has-queue .intro { padding-right: 290px; }
+@media (max-width: 640px) { .queue-box { position: static; width: auto; margin: 0 0 8px; } .card.has-queue h2, .card.has-queue .intro { padding-right: 0; } }
 .card h2 { font-size: 15px; margin: 0 0 6px; } .meta { color: #647084; font-size: 12.5px; margin: 8px 0 0; }
 .quote { background: #f3f4fb; border-left: 3px solid #4f5bd5; padding: 8px 12px; margin: 6px 0 10px; white-space: pre-wrap; font-size: 13px; max-height: 220px; overflow: auto; }
 .item { margin: 12px 0; } .item .q { display: block; margin-bottom: 3px; font-weight: 600; }
@@ -22,3 +27,14 @@ button.secondary { background: #f1f1ec; color: #1f2328; border-color: #d9d9d3; }
 .done { color: #1e7f4f; font-weight: 600; }
 .empty { color: #647084; }
 .transcript-view { max-height: 260px; overflow: auto; white-space: pre-wrap; background: #f3f4fb; padding: 8px; font-size: 12.5px; }
+.reading { position: fixed; top: 16px; right: 16px; width: 260px; background: #fff; border: 1px solid #e4e4de; border-radius: 10px; padding: 10px 12px; font-size: 12px; line-height: 1.4; color: #1f2328; box-shadow: 0 1px 4px rgba(0,0,0,.05); }
+.reading h2 { font-size: 12.5px; margin: 0 0 6px; } .reading ul { list-style: none; margin: 0; padding: 0; }
+.reading li { margin: 4px 0; } .reading b { font-weight: 600; } .reading .state { color: #647084; }
+.reading .warn { color: #b3403a; } .reading .ok { color: #1e7f4f; } .reading .note { color: #647084; margin: 6px 0 0; }
+@media (max-width: 1340px) { .reading { position: static; width: auto; margin: 10px 0 0; } }
+.advice { border: 1px solid #c9ccf0; background: #f6f6fd; border-radius: 10px; padding: 4px 18px 10px; margin: 24px 0; }
+.advice h2 { font-size: 15px; color: #363d9a; } .advice h3 { font-size: 13px; margin: 0 0 4px; } .advice ul { padding-left: 20px; margin: 0; }
+.advice .examples { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 8px 0; }
+.advice:target { box-shadow: 0 0 0 3px #c9ccf0; }
+.whatis { font-weight: normal; font-size: 12px; margin-left: 6px; }
+@media (max-width: 640px) { .advice .examples { grid-template-columns: 1fr; } }

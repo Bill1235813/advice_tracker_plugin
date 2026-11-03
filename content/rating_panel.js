@@ -41,6 +41,7 @@
       font-size: 13px; max-height: 160px; overflow: auto; }
     .item { margin: 10px 0; }
     .item .q { display: block; margin-bottom: 4px; font-weight: 600; }
+    .whatis { color: #4f5bd5; font-weight: normal; font-size: 12px; text-decoration: underline; cursor: pointer; margin-left: 4px; }
     .req { color: #b3403a; }
     .scale { display: flex; gap: 4px; }
     .scale label { flex: 1; text-align: center; font-size: 12px; color: #1f2328; cursor: pointer;
@@ -173,7 +174,8 @@
           <button id="later" title="Asks again in an hour; also listed under the extension icon" ${answered ? "hidden" : ""}>later (1 h)</button>
           <button id="close" title="Close; your earlier answers stay" ${answered ? "" : "hidden"}>✕</button></div>
         <div class="body">
-          <div class="why"><span id="intro">${Questions.escape(introOf(episode.stage, episode))}</span> <span class="site">(${Questions.escape(episode.site)})</span></div>
+          <div class="why"><span id="intro">${Questions.escape(introOf(episode.stage, episode))}</span> <span class="site">(${Questions.escape(episode.site)})</span>
+            <a href="#" id="whatis" class="whatis">what counts as advice?</a></div>
           <div class="quote">${Questions.escape(opening)}</div>
           <div id="confirm" ${episode.confirmed ? "hidden" : ""}><span class="q"><b>Did you ask for advice here?</b></span>
             <div class="actions"><button id="no">No</button><button class="primary" id="yes">Yes</button></div></div>
@@ -241,6 +243,7 @@
     // ✕ (only with earlier answers) closes the panel; the answers stand
     byId("close").onclick = () => finish({ type: "rating_closed", stage: current.stage });
     byId("yes").onclick = () => { byId("confirm").hidden = true; byId("form").hidden = false; };
+    byId("whatis").onclick = (event) => { event.preventDefault(); send({ type: "open_help" }); };
     byId("no").onclick = () => {
       if (!chrome.runtime?.id) { shadow.querySelector(".body").innerHTML = `<p class="done">${UPDATED}</p>`; return; }
       send({ type: "not_advice", id: current.id });
@@ -303,6 +306,8 @@
     };
     byId("yes").onclick = () => finish("yes");
     byId("no").onclick = () => finish("no");
+    const whatis = byId("whatis");
+    if (whatis) whatis.onclick = (event) => { event.preventDefault(); send({ type: "open_help" }); };
     // the invitation's "Stop asking about past conversations" link answers by itself
     const stop = byId("stop");
     if (stop) stop.onclick = (event) => { event.preventDefault(); finish("stop"); };
@@ -324,7 +329,8 @@
   function offerUpdate(episode, settings) {
     const question = episode.answered ? "Your advice conversation continued. Update your ratings?"
                                       : "Rate this advice conversation now? (about 5 to 10 minutes)";
-    return popup(episode, settings, Questions.escape(question), "offer_update", "update_answer", async () => {
+    const html = `${Questions.escape(question)} <a href="#" id="whatis" class="whatis">what counts as advice?</a>`;
+    return popup(episode, settings, html, "offer_update", "update_answer", async () => {
       const fresh = await latest(episode);
       if (fresh) show(fresh, settings);
     });
@@ -343,7 +349,7 @@
   // background keeps the answer (No removes the episode, as on the page).
   function offerConfirm(episode, settings) {
     const html = `It looked like you asked the AI for advice here:<div class="quote">${Questions.escape(shortened(episode.openingText))}</div>` +
-                 "<b>Did you ask for advice here?</b> If yes, a few questions about the advice follow later.";
+                 '<b>Did you ask for advice here?</b> <a href="#" id="whatis" class="whatis">what counts as advice?</a><br>If yes, a few questions about the advice follow later.';
     return popup(episode, settings, html, "offer_confirm", "confirm_answer", () => {});
   }
 
@@ -357,6 +363,7 @@
     let html;
     if (invite.source === "past") {
       html = `Advice Tracker found a conversation on ${site} from ${date}, before you joined the study, that may have been a request for advice.` +
+             ' <a href="#" id="whatis" class="whatis">what counts as advice?</a>' +
              `<br><b>You can earn ${Questions.escape(invite.reward)} for each past conversation you annotate</b> (up to ${invite.pastLimit}; about 5-10 minutes).` +
              '<div class="left">Answer No or Skip if it was not advice: that is fine, and never affects your participation.' +
              ' <a href="#" id="stop">Stop asking about past conversations</a></div>';
@@ -367,7 +374,8 @@
       html = `Your advice conversation on ${site} from ${date} continued, for example on your phone or another device. Update your answers?`;
     } else {
       html = `Advice Tracker found a conversation on ${site} from ${date} that was not recorded as it happened (for example on your phone ` +
-             "or another device). It may have been a request for advice. Answer a few questions (about 5-10 minutes)?";
+             'or another device). It may have been a request for advice. <a href="#" id="whatis" class="whatis">what counts as advice?</a> ' +
+             "Answer a few questions (about 5-10 minutes)?";
     }
     return popup({ id: invite.id }, settings, `${html}<div class="left">It opens in a separate tab.</div>`, "offer_invite", "invite_answer", () => {},
                  { no: "Not now", yes: "Open", answers: { no: "later", yes: "open" } });

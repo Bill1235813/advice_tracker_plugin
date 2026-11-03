@@ -101,7 +101,9 @@ version (one-click install) is in preparation; until then, follow the steps belo
   stay on your computer until you choose, on the settings page (it opens after the update), to send
   or delete them.
 - **Nothing is captured** before you enter your participant ID, while tracking is paused, or on a
-  site you excluded; messages you send then are never processed, not even later.
+  site you excluded; messages you send then are never processed, not even later. If tracking stays
+  paused for 5 days, a Chrome notification reminds you, with a "Resume tracking" button; it comes
+  again every 5 days while paused.
 - **No skipping.** The questions panel has no ✕ until you have answered once; you can still put it
   off with "later (1 h)", or answer "No" if you did not ask for advice (this removes the
   conversation from the study).

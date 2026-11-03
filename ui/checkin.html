@@ -5,7 +5,35 @@
 <div class="wrap">
   <h1>Advice Tracker check-in</h1>
   <p class="sub">Answers are stored on this computer and sent to the study server only when you press Submit.</p>
+  <!-- how reading the sites' conversation lists goes (0.6 opt-in), in plain words: checkin.js readingStatus -->
+  <aside id="reading" class="reading" hidden></aside>
   <div id="list"></div>
+  <!-- what the study means by advice: linked from every "Did you ask for advice here?" -->
+  <div class="advice" id="advice"><h2>What counts as personal advice?</h2>
+    <p>You're asking AI for personal advice when you want guidance on what to do in your life. This can include making a
+      decision, dealing with a problem, or working towards a goal.</p>
+    <p>Advice can be about anything personal in your life, such as health, money, relationships, work, school, or even habits,
+      as long as it relates to your life. It can be about a specific situation or a general goal, and can be something you plan
+      to act on soon or much later.</p>
+    <p><b>Quick rule of thumb:</b> were you asking AI to help you figure out what to do in your own life?</p>
+    <div class="examples">
+      <div><h3>Examples that count as asking for personal advice</h3>
+        <ul>
+          <li>"I got a job offer in Denver, but I'd have to move away from my family and leave a job I enjoy. Should I take the offer or stay?"</li>
+          <li>"My sister hasn't talked to me in a month. How do I bring it up?"</li>
+          <li>"Make me a weekly meal plan that's low in sodium"</li>
+          <li>"Here is my investing plan... Is it any good?"</li>
+        </ul></div>
+      <div><h3>Examples that do not count</h3>
+        <ul>
+          <li>Asking the AI to complete a task for you (often technical), such as writing an email, fixing code, or doing calculations, without asking for guidance.</li>
+          <li>Looking up information, without asking what to do.</li>
+          <li>Asking for general information or recommendations unrelated to a decision or goal in your life, such as "What are some good podcasts about history?"</li>
+          <li>Asking about fictional situations, games, roleplay, or imaginary scenarios.</li>
+        </ul></div>
+    </div>
+    <p>What matters is whether you were looking for guidance about what to do, not whether you followed the AI's suggestions.</p>
+  </div>
   <!-- free support resources (IRB protocol, section 11b) -->
   <div class="support"><h2>Free support resources</h2>
     <p>If thinking about this decision is upsetting, these free services can help:</p>
