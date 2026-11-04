@@ -6,8 +6,8 @@
 //   history_fetch {what: "read", id, windows} one conversation: {conversation} as lib/history.js
 //                                             forWorker hands it over (turns that may not be read go
 //                                             without their text), {gone} or {tooLong}
-// Every answer says which account it was read with (a hash) and whether it is a personal one; an
-// error answers {ok: false, status, retryAfterMs, blocked}.
+// Every answer says which account it was read with (a hash); an error answers {ok: false, status,
+// retryAfterMs, blocked}.
 // The site's reader (lib/history/<site>.js) does the requests; its credentials stay in this page's
 // memory only.
 (function () {
@@ -34,13 +34,12 @@
     const result = message.what === "list"
       ? { page: await withAuth((credentials) => reader.list(context, credentials, message.cursor ?? null)) }
       : await readOne(message);
-    // NOTE: [design thought] the account is told by a hash of its id only. A reader that knows the
-    // account also says whether it is a personal one (a team or work workspace is never read). A reader
-    // that cannot tell which account is signed in (Grok's) leaves both open: the worker then assumes
-    // one account in this browser, and watches the list for a change of account (background.js)
+    // NOTE: [design thought] the account is told by a hash of its id only (a workspace has an id of its
+    // own, lib/history/<site>.js). A reader that cannot tell which account is signed in (Grok's) leaves
+    // it open: the worker then assumes one account in this browser, and watches the list for a change
+    // of account (background.js)
     const known = Boolean(auth?.accountId);
-    return { ok: true, account: known ? Episodes.hash(String(auth.accountId)) : null, accountKnown: known,
-             personal: known ? auth.personal === true : auth?.personal !== false, ...result };
+    return { ok: true, account: known ? Episodes.hash(String(auth.accountId)) : null, accountKnown: known, ...result };
   }
 
   async function readOne(message) {

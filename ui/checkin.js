@@ -315,7 +315,8 @@ async function readingStatus(stored) {
     else if (excluded(host)) text = "off: you excluded this site";
     else if (config.history?.[host] === false) text = "switched off by the study team for now";
     else if (state?.blocked) { kind = "warn"; text = "stopped by the site until Chrome is restarted"; }
-    else if (state?.otherAccount) { kind = "warn"; text = "stopped: not a personal account. Please sign in with your personal account and refresh the page"; }
+    // (only the account first read on a site is read: background.js historyReply)
+    else if (state?.otherAccount) { kind = "warn"; text = "stopped: another account or workspace is open. Please switch back to the account first read here and refresh the page"; }
     else if (state?.signedOut) { kind = "warn"; text = "stopped: signed out. Please sign in and refresh the page"; }
     else if ((state?.waitUntil ?? 0) > now && state?.backoffMs) text = `paused by the site until ${time(state.waitUntil)}`;
     // (any one tab answering is enough: the background tries each until one does)

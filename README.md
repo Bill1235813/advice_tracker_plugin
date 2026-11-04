@@ -15,7 +15,23 @@ version (one-click install) is in preparation; until then, follow the steps belo
 
 **How it works, in detail:** [`docs/advice-tracker-design.pdf`](docs/advice-tracker-design.pdf).
 
-## What's new in version 0.6.5 (v0.6 branch)
+## What's new in version 0.6.6 (v0.6 branch)
+
+- **Past and other-device conversations are read from any account**, a work, school or team one
+  too (a ChatGPT or Claude workspace, a Google Workspace account on Gemini, a Perplexity Enterprise
+  account): it was a personal account only (on Gemini, only a gmail.com address). As before, only
+  the account first read on a site is read; while another account or workspace is open there, that
+  site's reading stops.
+- **What counts as advice:** the study's definition, with examples, on the check-in page, linked
+  from the settings page and from every "Did you ask for advice here?".
+- **Where reading stands:** the check-in page shows, for each site, how reading its conversations
+  goes and why it stopped, and how many past conversations wait to be annotated.
+- **A reminder while paused:** after 5 days of paused tracking, a Chrome notification with a
+  "Resume tracking" button, again every 5 days while paused.
+- **ChatGPT:** past conversations of a personal account are read again (a new cookie format made
+  them look like a workspace's).
+
+## What's new in version 0.6.5
 
 - **The study server moved to university computers**, next to the study's AI model (it ran on
   a hosted service). A new install uses its new address; an install updated from an earlier
@@ -240,10 +256,11 @@ button.
   minute. Past conversations go back up to 90 days before you joined; other-device conversations
   are those after you joined that the web page did not see. Messages sent while tracking was paused,
   on an excluded site, on days the extension was not running, or before you last used "Delete all
-  data" are never read (they do not even leave the chat page into the extension). Only the account
-  you were signed in with the first time is read, never a work or team workspace (on Grok, which does
-  not say which account is signed in, one account in this browser is assumed, and reading stops while
-  the conversation list looks like someone else's). The messages are
+  data" are never read (they do not even leave the chat page into the extension). On each site,
+  only the account you were signed in with the first time is read, whether it is a personal one or a
+  work, school or team one; while another account or workspace is open there, reading that site
+  stops (on Grok, which does not say which account is signed in, one account in this browser is
+  assumed, and reading stops while the conversation list looks like someone else's). The messages are
   checked by the study's AI model like those on the web; a conversation's text is sent only with
   your answers about it (for a past one, the conversation is shown to you as it will be sent).
   The text of a conversation found but not answered stays on your computer at most 30 days. To keep
@@ -319,7 +336,7 @@ e-mail.
 
 ## For reviewers and developers
 
-- `manifest.json` (Manifest V3, version 0.6.5): permissions `storage`, `unlimitedStorage` (no
+- `manifest.json` (Manifest V3, version 0.6.6): permissions `storage`, `unlimitedStorage` (no
   install warning), `alarms`, `notifications`, and host permissions for the five chat sites (plus
   `localhost` for the mock test page); no remote code.
 - Past and other-device conversations (0.6, opt-in): `content/history.js` answers the worker's

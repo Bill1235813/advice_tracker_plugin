@@ -1379,8 +1379,8 @@ async function pastLeft() {
 // minutes up to 6 hours, doubling), 401 (signed out, after one new token: an hour), 403 or a page
 // instead of data (blocked: nothing until the browser starts again); no answer or another error: 10
 // minutes. For one conversation, a failure is that conversation's (tried again later, at most
-// READ_TRIES_MAX times), and 404 means it is gone. The site is read for one personal account only:
-// the first one read.
+// READ_TRIES_MAX times), and 404 means it is gone. The site is read for one account only: the first
+// one read.
 async function historyReply(host, request, reply) {
   const state = (await load(`hstate:${host}`)) || {};
   const now = Date.now();
@@ -1409,13 +1409,15 @@ async function historyReply(host, request, reply) {
     if (reply.status === 403 || reply.blocked) return save(`hstate:${host}`, { ...state, blocked: true });
     return pause(10 * 60000);
   }
-  // NOTE: [design thought] another account (a family member's, a work one) or a team workspace is
-  // never read: only the personal account first read after the participant agreed. For a site whose
-  // reader cannot say which account is signed in (Grok), one account in this browser is assumed, under
-  // this install's own code; a list page that looks like another account's (sameAccount) pauses it
+  // NOTE: [design thought] only the account first read after the participant agreed is read, a
+  // personal one or a work, school or team one alike (since 0.6.6), never another one later (a family
+  // member's, or the participant's other account or workspace: each has its own conversation list,
+  // and the walk keeps one per site). For a site whose reader cannot say which account is signed in
+  // (Grok), one account in this browser is assumed, under this install's own code; a list page that
+  // looks like another account's (sameAccount) pauses it
   const bound = await load(`haccount:${host}`);
   const account = reply.account ?? (reply.accountKnown === false ? `assumed-${await load("installId")}` : null);
-  if (!account || reply.personal !== true || (bound && bound !== account)) return pause(3600 * 1000, { otherAccount: true });
+  if (!account || (bound && bound !== account)) return pause(3600 * 1000, { otherAccount: true });
   if (request.what === "list" && reply.accountKnown === false && !(await sameAccount(host, reply.page))) return pause(3600 * 1000, { otherAccount: true });
   if (!bound) await save(`haccount:${host}`, account);
   await save(`hstate:${host}`, { ...state, backoffMs: 0, signedOut: false, otherAccount: false, noAnswer: false, waitUntil: 0 });
