@@ -14,7 +14,7 @@ STUDY_CONFIG.ratingMode = "combined";
 // Past conversations (settings page, opt-in): how far back before joining they are read, how many may
 // be found (waiting or annotated), and what each annotation earns (the pop-up says so).
 STUDY_CONFIG.pastLookbackDays = 90;
-STUDY_CONFIG.pastLimit = 20;
+STUDY_CONFIG.pastLimit = 30;
 STUDY_CONFIG.pastReward = "$2";
 // A participant who leaves tracking paused gets a Chrome notification after this many days, and again
 // after as many more while it stays paused (clicking "Resume tracking" on it resumes).

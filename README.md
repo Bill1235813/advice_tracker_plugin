@@ -15,7 +15,12 @@ version (one-click install) is in preparation; until then, follow the steps belo
 
 **How it works, in detail:** [`docs/advice-tracker-design.pdf`](docs/advice-tracker-design.pdf).
 
-## What's new in version 0.6.6 (v0.6 branch)
+## What's new in version 0.6.7 (v0.6 branch)
+
+- **Up to 30 past conversations** can be annotated ($2 each, up to $60), as the study's IRB
+  protocol says; it was 20 ($40).
+
+## What's new in version 0.6.6
 
 - **Past and other-device conversations are read from any account**, a work, school or team one
   too (a ChatGPT or Claude workspace, a Google Workspace account on Gemini, a Perplexity Enterprise
@@ -85,7 +90,7 @@ version (one-click install) is in preparation; until then, follow the steps belo
   - *Past conversations* (up to 90 days before you joined): when one looks like a request for
     advice, a small invitation on that site's page (at most twice a day) offers to annotate it in a
     separate tab: first "Did you ask for advice here?" (Yes, No or Skip), then questions like those
-    of the two-week check-in. **You can earn $2 for each past conversation you annotate** (up to 20).
+    of the two-week check-in. **You can earn $2 for each past conversation you annotate** (up to 30).
     No and Skip are always fine and never affect your participation.
   - *Other devices*: conversations you have after joining in the sites' phone or desktop apps (they
     appear in the website's list too) are asked about like those on the web, one at a time per
@@ -336,7 +341,7 @@ e-mail.
 
 ## For reviewers and developers
 
-- `manifest.json` (Manifest V3, version 0.6.6): permissions `storage`, `unlimitedStorage` (no
+- `manifest.json` (Manifest V3, version 0.6.7): permissions `storage`, `unlimitedStorage` (no
   install warning), `alarms`, `notifications`, and host permissions for the five chat sites (plus
   `localhost` for the mock test page); no remote code.
 - Past and other-device conversations (0.6, opt-in): `content/history.js` answers the worker's
