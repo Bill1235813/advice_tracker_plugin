@@ -1398,7 +1398,9 @@ async function historyReply(host, request, reply) {
   const pause = (ms, extra = {}) => save(`hstate:${host}`, { ...state, waitUntil: now + ms, ...extra });
   const key = `${host}/${request.id}`;
   if (!reply?.ok && request.what === "read" && reply?.status !== 429) {
-    if (reply?.status === 404) return forgetConversation(host, request.id, request.listedU);
+    // NOTE: [edge case callout] a conversation is gone only when the site's reader says so (reply.gone,
+    // below: each reader knows what its site counts as deleted); a 404 it throws (an edge page, a
+    // workspace no longer reachable) is a failure of this read, which must not delete what was found
     if (reply?.status === 401) return pause(3600 * 1000, { signedOut: true });
     // NOTE: [edge case callout] one conversation that cannot be read (an error of the site's for it, a
     // reader that trips over it, an answer too slow) must not stop the others
@@ -1460,7 +1462,11 @@ function mergeList(host, request, page) {
   return serialized(`hlist:${host}`, async () => {
     const list = (await load(`hlist:${host}`)) || { items: [], listedAt: 0, cursor: null, end: false, reached: null, refresh: null };
     const byId = new Map(list.items.map((item) => [item.id, item]));
-    const unseen = page.items.filter((item) => byId.get(item.id)?.u !== item.updatedAt);
+    // NOTE: [edge case callout] a page of a refresh can repeat items of the page before it (Claude's
+    // pages overlap by a few chats; an offset list shifts when a chat moves up): those were new or
+    // changed when that page came (else the refresh would have stopped), so they count as such again
+    const inRefresh = new Set(request.refresh && request.cursor !== null ? list.refreshSeen || [] : []);
+    const unseen = page.items.filter((item) => byId.get(item.id)?.u !== item.updatedAt || inRefresh.has(item.id));
     for (const item of page.items) byId.set(item.id, { id: item.id, u: item.updatedAt, c: item.createdAt ?? null });
     const regular = page.items.filter((item) => !item.pinned && Number.isFinite(item.updatedAt)).map((item) => item.updatedAt);
     const oldest = regular.length ? Math.min(...regular) : null;
@@ -1470,6 +1476,7 @@ function mergeList(host, request, page) {
       // (the first refresh also starts the walk back)
       if (!list.listedAt) Object.assign(next, { cursor: page.next ?? null, end: !page.next });
       next.refresh = list.listedAt && page.next && unseen.length === page.items.length ? page.next : null;
+      next.refreshSeen = next.refresh !== null ? [...inRefresh, ...page.items.map((item) => item.id)].slice(-1000) : [];
     } else {
       Object.assign(next, { cursor: page.next ?? null, end: !page.next });
     }
