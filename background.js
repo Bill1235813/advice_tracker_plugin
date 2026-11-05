@@ -2240,10 +2240,13 @@ async function studyClock() {
 }
 
 // ---------------- uploads ----------------
+// NOTE: [edge case callout] nothing goes without a participant ID (the study server could not tie it to
+// anyone): an event made then (a check-in answered after the ID was cleared on the settings page) waits
+// in the queue, and goes with the ID once one is saved (flushQueue)
 async function upload(type, payload, settings) {
   const started = generation;
   const event = { type, participant_id: settings.participantId, sent_at: Date.now(), payload };
-  if (await post(event, settings)) return;
+  if (settings.participantId && (await post(event, settings))) return;
   await serialized("queue", async () => {
     const queue = (await load("queue")) || [];
     // NOTE: [edge case callout] dropped, not queued: an event of an episode marked not advice
@@ -2291,11 +2294,13 @@ async function queuedEvent(event) {
 async function flushQueue() {
   const settings = await getSettings();
   const started = generation;
+  if (!settings.participantId) return;               // (upload: nothing goes without an ID)
   await serialized("queue", async () => {
     const remaining = [];
     for (const queued of (await load("queue")) || []) {
       if (started !== generation) return;            // "delete all data" meanwhile: nothing more goes out
-      const event = await queuedEvent(queued);
+      const found = await queuedEvent(queued);
+      const event = found && found !== "wait" && !found.participant_id ? { ...found, participant_id: settings.participantId } : found;
       // (an event that waits, or could not go, stays as it may go now: without a conversation that stays)
       if (event === "wait") remaining.push(queued);
       else if (event && !(await post(event, settings))) remaining.push(event);
