@@ -141,6 +141,7 @@ function ratingCard(episode, asked, settings) {
       <p class="meta">${Questions.escape(Questions.CONVERSATION_NOTES[episode.text])}</p>
       <button type="button" class="submit">Submit</button></div>`;
   Questions.fill(card, questions, episode.answers);
+  Questions.wire(card, questions);
   card.querySelector(".yes").onclick = () => { card.querySelector(".confirm").hidden = true; card.querySelector(".form").hidden = false; };
   card.querySelector(".no").onclick = async () => {
     answeredHere.add(episode.id);
@@ -201,6 +202,7 @@ function itemCard(episode, settings, now) {
       <p class="meta">${Questions.escape(Questions.CONVERSATION_NOTES[episode.text] || Questions.CONVERSATION_NOTES.with_answers)}</p>
       <button type="button" class="submit">Submit</button> ${past ? '<button type="button" class="secondary skip">Skip this one</button>' : ""}</div>`;
   Questions.fill(card, questions, episode.answers);
+  Questions.wire(card, questions);         // (a past one asks the check-in's questions: "too early to tell" clears the outcome)
   // the page counts as asked once it is on the screen (the update rule looks at that)
   chrome.runtime.sendMessage({ type: "rating_shown", id: episode.id, start: episode.start, end: episode.end });
   const done = (text) => { card.innerHTML = `<p class="done">${text}</p>`; };
@@ -257,6 +259,8 @@ function checkinCard(episode, episodes, settings, stored) {
   const card = newCard(episode, "checkin");
   const later = episodes.filter((other) => (other.related || []).includes(episode.id)).length;
   const days = Math.round((Date.now() - episode.openedAt) / 86400000);
+  // (a tester's short follow-up time brings the check-in on the same day)
+  const ago = days < 1 ? "Earlier today" : days === 1 ? "Yesterday" : `About ${days} days ago`;
   // an episode from 0.4: its conversation, redacted as it will be sent, for review
   const messages = episode.text === "at_checkin" ? reviewMessages(episode, stored) : [];
   const review = messages.length ? Questions.transcript(messages, settings.redactNames || []) : null;
@@ -265,7 +269,7 @@ function checkinCard(episode, episodes, settings, stored) {
   const recall = episode.answers?.decision ? `<p class="meta">In your words, you were asking about:</p>${quote(episode.answers.decision)}`
                                          : `<p class="meta">You asked:</p>${quote(episode.openingText || "")}`;
   card.innerHTML = `<h2>${Questions.escape(episode.site)} · ${new Date(episode.openedAt).toLocaleDateString()}</h2>
-    <p>About ${days} days ago you asked an AI assistant for advice. What happened since?</p>${recall}
+    <p>${ago} you asked an AI assistant for advice. What happened since?</p>${recall}
     ${later ? `<p class="meta">Since then you had ${later} more conversation(s) that looked related to this one.</p>` : ""}
     ${Questions.render(Questions.CHECKIN)}
     ${review ? `<div class="item"><span class="q">Your conversation, as we will store it</span>
@@ -273,9 +277,11 @@ function checkinCard(episode, episodes, settings, stored) {
         (${Questions.escape(removed)}). Delete anything else you do not want us to keep, then submit.</p>
       <textarea class="transcript">${Questions.escape(review.text)}</textarea></div>` : ""}
     <button type="button" class="submit">Submit check-in</button>`;
+  Questions.wire(card, Questions.CHECKIN);
   card.querySelector(".submit").onclick = async () => {
     const { answers, missing } = Questions.read(card, Questions.CHECKIN);
     if (missing.length) { alert("Please answer all the questions marked *."); return; }
+    card.dataset.settled = "answered";            // (the storage listener leaves this card alone)
     const transcript = review ? card.querySelector(".transcript").value : null;
     await chrome.runtime.sendMessage({ type: "checkin_submitted", id: episode.id, answers: { ...answers, answeredAt: Date.now() },
                                        ...(review ? { transcript, edited: transcript !== review.text } : {}) });
@@ -365,13 +371,24 @@ chrome.storage.onChanged.addListener((changes, area) => {
   for (const [name, change] of Object.entries(changes)) {
     if (!name.startsWith("episode:")) continue;
     const id = name.slice("episode:".length), episode = change.newValue;
+    // a check-in submitted in another tab: this copy of it says so (the background takes one only)
+    const checkin = document.getElementById(`card-checkin-${id}`);
+    if (checkin && !checkin.dataset.settled && (!episode || episode.status === "removed" || episode.checkin?.doneAt)) {
+      checkin.dataset.settled = "elsewhere";
+      checkin.innerHTML = `<p class="done">${episode?.checkin?.doneAt ? "This check-in was already answered elsewhere: nothing more to do here."
+                                                                        : "This check-in is no longer open."}</p>`;
+    }
     if (answeredHere.has(id)) continue;
     for (const kind of ["rate", "item"]) {
       const card = document.getElementById(`card-${kind}-${id}`);
       if (!card || card.dataset.settled) continue;
-      if (!episode || episode.status === "removed") {
+      // NOTE: [edge case callout] a finished episode takes no more answers (the background ignores
+      // them): e.g. its final answers still waited on this page when its check-in was submitted
+      if (!episode || episode.status === "removed" || episode.status === "done") {
         card.dataset.settled = "gone";
-        card.innerHTML = '<p class="done">This question is no longer open.</p>';
+        card.innerHTML = episode?.status === "done" && episode.checkin?.doneAt
+          ? '<p class="done">Your check-in completed this conversation: no more answers are needed here.</p>'
+          : '<p class="done">This question is no longer open.</p>';
       } else if (episode.versions !== Number(card.dataset.versions)) {
         if (!Modes.stillDue(episode)) {
           card.dataset.settled = "elsewhere";

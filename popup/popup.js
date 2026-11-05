@@ -4,12 +4,15 @@ async function refresh() {
   const episodes = Object.entries(stored).filter(([name]) => name.startsWith("episode:")).map(([, episode]) => episode);
   const now = Date.now();
   document.getElementById("n-found").textContent = stats.episodes || 0;
-  // the same questions the badge on the icon counts (lib/modes.js)
-  document.getElementById("n-pending").textContent = episodes.filter(Modes.waiting).length;
+  // the same questions the badge on the icon counts (lib/modes.js; background.js updateBadge): one asked
+  // through its site's queue only while its kind is on and its site not excluded (it cannot be asked else)
+  const kindOn = (e) => (e.source === "past" ? settings.readPast : e.source === "app" || e.heldBy === "history" ? settings.readApps : true);
+  const askable = (e) => !Modes.viaQueue(e) || (Boolean(kindOn(e)) && !isExcluded(new URL(e.url).hostname, settings.excludedHosts || []));
+  document.getElementById("n-pending").textContent = episodes.filter((e) => Modes.waiting(e) && askable(e)).length;
   document.getElementById("n-due").textContent = episodes.filter((e) => Modes.checkinDue(e, now)).length;
   document.getElementById("n-removed").textContent = stats.not_advice || 0;
   // past conversations found that can be annotated now (the follow-up time after the request), and the switch
-  document.getElementById("n-past").textContent = episodes.filter((e) => Modes.queueDue(e, now, Modes.followupSeconds(settings))?.stage === "past").length;
+  document.getElementById("n-past").textContent = episodes.filter((e) => askable(e) && Modes.queueDue(e, now, Modes.followupSeconds(settings))?.stage === "past").length;
   document.getElementById("history-note").innerHTML = `<a href="#" id="history-link">${settings.readPast || settings.readApps
     ? "Past and other-device conversations: on (change)" : "New: past conversations ($2 each) and other devices: turn on"}</a>`;
   document.getElementById("history-link").onclick = (event) => {

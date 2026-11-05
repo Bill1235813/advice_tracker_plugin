@@ -43,6 +43,7 @@
     .item .q { display: block; margin-bottom: 4px; font-weight: 600; }
     .whatis { color: #4f5bd5; font-weight: normal; font-size: 12px; text-decoration: underline; cursor: pointer; margin-left: 4px; }
     .req { color: #b3403a; }
+    .item.na { opacity: .45; } .item.na .req { visibility: hidden; }
     .scale { display: flex; gap: 4px; }
     .scale label { flex: 1; text-align: center; font-size: 12px; color: #1f2328; cursor: pointer;
       padding: 4px 2px; border: 1px solid #d9d9d3; border-radius: 6px; background: #fff; }
@@ -188,6 +189,7 @@
         </div>
       </div>`;
     Questions.fill(shadow, questions, previous);
+    Questions.wire(shadow, questions);       // (questions that depend on another answer: lib/questions.js)
     document.body.appendChild(host);
     // the background counts a page as asked only once it is really on the screen
     send({ type: "rating_shown", id: episode.id, start: episode.start, end: episode.end });

@@ -564,19 +564,24 @@ function episodeId(key, start, opening, openedAt) {
 
 // BITE links a later event to an earlier interaction by word overlap; here a new episode about
 // the same decision is linked to the earlier one, and the check-in mentions it
-async function relatedEpisodes(openingText, settings) {
+// NOTE: [edge case callout] only episodes asked before this one (`openedAt`): a past conversation
+// found today is older than the web episodes already recorded, so linking it to them would count
+// it as a later, related conversation at their check-ins (and them as earlier ones in its upload)
+async function relatedEpisodes(openingText, settings, openedAt = Infinity) {
   return (await loadAll("episode:")).map(([, other]) => other)
-    .filter((other) => other.openingText && Similarity.jaccard(openingText, other.openingText) >= settings.relatedThreshold)
+    .filter((other) => other.openingText && (other.openedAt ?? 0) < openedAt &&
+                       Similarity.jaccard(openingText, other.openingText) >= settings.relatedThreshold)
     .map((other) => other.id);
 }
 
 async function saveNewRecord(id, chat, page, settings) {
   const openingText = page.userTurns[chat.opening - 1] || "";
+  const openedAt = chat.openedAt ?? Date.now();
   const record = {
     id, chatKey: chat.key, site: chat.site, url: page.snapshot.url,
     mode: settings.ratingMode,           // fixed for the episode's whole life
-    start: chat.segmentStart, opening: chat.opening, end: chat.end ?? chat.opening, openedAt: chat.openedAt ?? Date.now(),
-    closedAt: null, closedBy: null, openingText, related: await relatedEpisodes(openingText, settings),
+    start: chat.segmentStart, opening: chat.opening, end: chat.end ?? chat.opening, openedAt,
+    closedAt: null, closedBy: null, openingText, related: await relatedEpisodes(openingText, settings, openedAt),
     status: "open", answers: null, versions: 0, answeredEnd: null, askedEnd: null, finalDue: false, panelTabs: [],
   };
   if (page.started !== generation) return null;          // "delete all data" happened meanwhile
@@ -1069,8 +1074,15 @@ async function onRatingSubmitted(message) {
 
 async function onCheckinSubmitted(message) {
   const settings = await getSettings();
-  const record = await load(`episode:${message.id}`);
-  if (!record?.checkin || record.checkin.doneAt) return;
+  // NOTE: [edge case callout] the check-in is taken in the record's chain, so two pages submitting it
+  // at once (two tabs of the check-in page) send it once: the second finds it done
+  let record = null;
+  await updateEpisode(message.id, (current) => {
+    if (!current.checkin || current.checkin.doneAt) return current;
+    record = current;
+    return { ...current, checkin: { ...current.checkin, doneAt: Date.now() } };
+  });
+  if (!record) return;
   const later = (await loadAll("episode:")).filter(([, other]) => (other.related || []).includes(record.id)).length;
   chrome.alarms.clear(`checkin|${record.id}`);
   // NOTE: [edge case callout] an episode whose complete conversation did not go yet (it ended while
@@ -1082,9 +1094,8 @@ async function onCheckinSubmitted(message) {
   const reviewed = Questions.conversationGoes(record, excluded(settings, record.url)) === "at_checkin" &&
                    (record.messages || record.status === "open") && typeof message.transcript === "string";
   await updateEpisode(record.id, (current) => {
-    const next = { ...current, checkin: { ...current.checkin, doneAt: Date.now() } };
     const owed = current.answers && current.messages && !current.transcriptSent && !textStays(current, settings);
-    return current.status === "open" || owed ? next : doneRecord(next);      // an open one becomes done when it ends
+    return current.status === "open" || owed ? current : doneRecord(current);      // an open one becomes done when it ends
   });
   await upload("checkin", { episode: record.id, site: record.site, source: record.source ?? "web", mode: record.mode,
                             answers: redactAnswers(message.answers, settings.redactNames), related_later: later,
@@ -1818,7 +1829,7 @@ async function followHistoryEpisode(hist, judge, page, settings) {
       id: judge.episodeId, chatKey: hist.chat, site: hist.site, url: hist.url, source, heldBy: "history", walk: hist.key,
       mode: source === "past" ? "past" : "combined", start: judge.segmentStart, opening: judge.opening, end: judge.end,
       openedAt: judge.openedAt, detectedAt: Date.now(), closedAt: null, closedBy: null, openingText,
-      related: await relatedEpisodes(openingText, settings), status: "open", answers: null, versions: 0, answeredEnd: null,
+      related: await relatedEpisodes(openingText, settings, judge.openedAt ?? Infinity), status: "open", answers: null, versions: 0, answeredEnd: null,
       askedEnd: null, finalDue: false, panelTabs: [], title: hist.title, conversationCreatedAt: hist.createdAt,
       messages: historyMessages(page, judge.segmentStart, judge.end), turnHashes: hist.turns.slice(judge.segmentStart - 1, judge.end).map((turn) => turn.h),
       lastTurnAt: hist.turns[judge.end - 1].at,

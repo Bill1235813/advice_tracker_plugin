@@ -69,6 +69,14 @@ document.getElementById("save").onclick = async () => {
     alert("Please enter the follow-up time as a whole number of seconds, 1 or more (1209600 = 14 days).");
     return;
   }
+  // (the same for the quiet time: zero or less would end every advice conversation as soon as it opens;
+  // an empty field keeps the default)
+  const quietField = document.getElementById("endQuietMinutes").value.trim();
+  const endQuietMinutes = quietField === "" ? DEFAULTS.endQuietMinutes : Math.round(Number(quietField));
+  if (!(endQuietMinutes >= 1 && endQuietMinutes <= 10080)) {
+    alert("Please enter the minutes without activity as a whole number from 1 to 10080 (1440 = one day).");
+    return;
+  }
   // since when tracking is paused (the heartbeat reports it): kept while it stays paused
   const pausedAt = !paused ? null : (settings.paused && settings.pausedAt) || Date.now();
   const next = {
@@ -77,7 +85,7 @@ document.getElementById("save").onclick = async () => {
     serverUrl: document.getElementById("serverUrl").value.trim().replace(/\/$/, ""),
     studyKey: document.getElementById("studyKey").value.trim(),
     followupSeconds,
-    endQuietMinutes: Number(document.getElementById("endQuietMinutes").value) || DEFAULTS.endQuietMinutes,
+    endQuietMinutes,
     excludedHosts: lines("excludedHosts").map(siteOf).filter(Boolean),          // lib/sites.js: "https://www.Claude.ai/new" -> "claude.ai"
     redactNames: lines("redactNames"),
     paused, pausedAt, readPast, readApps,
