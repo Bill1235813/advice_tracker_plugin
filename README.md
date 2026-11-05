@@ -15,7 +15,27 @@ version (one-click install) is in preparation; until then, follow the steps belo
 
 **How it works, in detail:** [`docs/advice-tracker-design.pdf`](docs/advice-tracker-design.pdf).
 
-## What's new in version 0.6.7 (v0.6 branch)
+## What's new in version 0.6.8 (v0.6 branch)
+
+- **Answers that no longer apply are cleared.** Ticking "It is too early to tell" clears and locks
+  "So far, how has the situation turned out?" (both were sent before); "Did the advice you followed
+  make you feel better?" appears only when you followed the advice, and is cleared when you change
+  that answer; "No one" cannot be ticked together with someone you asked. This applies to the
+  two-week check-in and to past conversations.
+- **One check-in per conversation.** A check-in submitted in two tabs is sent once; the other tab
+  says it was answered, and questions about a conversation that its check-in completed say so too.
+- **Nothing is sent without a participant ID**: an answer given then waits, and is sent with the
+  ID once it is saved.
+- The settings page refuses a quiet time below 1 minute or above a week (0 or less ended every
+  advice conversation at once). The popup counts the same waiting questions as the icon's badge.
+- A past conversation found later is no longer counted as a "later, related" conversation of an
+  older one.
+- **Reading past and other-device conversations:** a pause asked for by Gemini no longer ends the
+  reading of older conversations; a Claude conversation is deleted from the computer only when Claude
+  says it was deleted (not on an unrelated error); a refresh of the Claude list goes past its second
+  page; on Grok, the reply to a message written by Grok itself (a scheduled task) is not read.
+
+## What's new in version 0.6.7
 
 - **Up to 30 past conversations** can be annotated ($2 each, up to $60), as the study's IRB
   protocol says; it was 20 ($40).
@@ -341,7 +361,7 @@ e-mail.
 
 ## For reviewers and developers
 
-- `manifest.json` (Manifest V3, version 0.6.7): permissions `storage`, `unlimitedStorage` (no
+- `manifest.json` (Manifest V3, version 0.6.8): permissions `storage`, `unlimitedStorage` (no
   install warning), `alarms`, `notifications`, and host permissions for the five chat sites (plus
   `localhost` for the mock test page); no remote code.
 - Past and other-device conversations (0.6, opt-in): `content/history.js` answers the worker's
@@ -373,7 +393,8 @@ e-mail.
   `install_id`). 0.6 adds `source` (web, app, past) to the episode events, `past_annotation`
   (answers + the redacted transcript of a past episode, with a `fingerprint` to pay each once),
   `past_skipped`, `consent` (`feature`, `accepted`, `version`) and the `prompt` kinds `invite` and
-  `card`. 0.6.2: a `prompt` can also end `withdrawn` (the pop-up or invitation was taken away because
+  `card`. 0.6.8: an answer to a question that does not apply is `null` (`outcome` when `too_early` is
+  ticked, `feel_better` unless `followed` is `fully` or `partly`). 0.6.2: a `prompt` can also end `withdrawn` (the pop-up or invitation was taken away because
   the participant answered the same question elsewhere), and `episode_transcript` carries
   `answer_versions` and `final_due`: when a change of topic or the cut closes an answered episode with
   nothing new since the answers, no final answers are asked (`final_due` false) and the last
