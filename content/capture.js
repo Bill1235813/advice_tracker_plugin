@@ -422,8 +422,10 @@
       if (message.invite.site !== config.name) { sendResponse({ shown: false }); return; }
       sendResponse(RatingPanel.offerInvite(message.invite, message.settings) ? { shown: true } : { busy: true });
     } else if (message.type === "offer_followup") {
-      // (the background puts the participant's own summary only into a page of the conversation's own site)
-      sendResponse(RatingPanel.offerFollowup(message.item, message.settings) ? { shown: true } : { busy: true });
+      // NOTE: [design thought] the participant's own summary only on a page of the conversation's own site: the
+      // background decided it from the page it last saw, and the tab may have gone to another site since
+      const item = message.item.site === config.name ? message.item : { ...message.item, summary: "" };
+      sendResponse(RatingPanel.offerFollowup(item, message.settings) ? { shown: true } : { busy: true });
     } else if (message.type === "close_panel") {
       RatingPanel.close(message.id);
     } else if (message.type === "close_offer") {

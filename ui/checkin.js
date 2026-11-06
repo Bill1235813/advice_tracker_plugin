@@ -26,11 +26,12 @@ let pageSettings = {};
 // how many questions wait in each site's queue (the page shows one at a time): for the "1 of N" line
 let queueCounts = {};
 
+// (each page counts its own kind: past conversations on the outcomes page, those from elsewhere on the quick one)
 function countQueued(episodes, settings) {
   const counts = {};
   for (const episode of episodes) {
     if (!Modes.viaQueue(episode) || ["done", "removed"].includes(episode.status) || (episode.source === "past" && episode.answers) ||
-        !queueKindOn(episode, settings)) continue;
+        !queueKindOn(episode, settings) || (episode.source === "past") !== OUTCOMES) continue;
     counts[episode.site] = (counts[episode.site] || 0) + 1;
   }
   return counts;
@@ -40,8 +41,9 @@ function countQueued(episodes, settings) {
 // site: without this line, "4" on the icon and one card here look like a fault
 function queueLine(episode) {
   const n = queueCounts[episode.site] || 1;
-  const what = episode.source === "past" ? "past conversation" : "conversation from elsewhere";
-  return n === 1 ? `1/1 ${what} awaiting labeling` : `1/${n} ${what}s awaiting labeling`;
+  const [one, many] = episode.source === "past" ? ["past conversation", "past conversations"]
+                                                : ["conversation from elsewhere", "conversations from elsewhere"];
+  return n === 1 ? `1/1 ${one} awaiting labeling` : `1/${n} ${many} awaiting labeling`;
 }
 const QUEUE_SUB = "The next conversation will appear once you label this one.";
 
@@ -61,7 +63,8 @@ async function main() {
   const asked = params.get("item") || params.get("rate");
   const queued = new Set();
   for (const site of new Set(episodes.map((episode) => episode.site))) {
-    const mine = episodes.filter((episode) => episode.site === site && queueKindOn(episode, settings));
+    // (the outcomes page asks about past conversations, the quick one about those from elsewhere: each its own question)
+    const mine = episodes.filter((episode) => episode.site === site && queueKindOn(episode, settings) && (episode.source === "past") === OUTCOMES);
     // (one this tab was opened for, unless its answers are up to date: nothing new since, lib/modes.js stillDue)
     const opened = mine.find((episode) => episode.id === asked && Modes.viaQueue(episode) && Modes.stillDue(episode));
     const item = opened ? { record: opened } : Modes.queueItem(mine, now, Modes.followupSeconds(settings), stored[`qstate:${site}`]?.current);
@@ -299,7 +302,8 @@ function followupCard(episode, episodes, settings, stored, all = false) {
     `<button type="button" class="${pairs.length > 1 && index === 0 ? "secondary" : ""}" data-answer="${answer}">${Questions.escape(label)}</button>`).join(" ");
   let body;
   if (stage === "later") {
-    body = `<p class="meta">We will ask how this went from ${day(checkin.askFrom)}${episode.status === "open" ? ", once the conversation has ended" : ""}.</p>`;
+    // (a check-in made before 0.6.9 has no askFrom: its outcome questions come on its day, dueAt)
+    body = `<p class="meta">We will ask how this went from ${day(checkin.askFrom ?? checkin.dueAt)}${episode.status === "open" ? ", once the conversation has ended" : ""}.</p>`;
   } else if (stage === "waiting" && decision.decided === "no") {
     body = `<p class="meta">You had not decided yet on ${day(decision.at)}. We will ask again on ${day(checkin.nextAt)}.</p>${buttons([["decided:yes", "I have decided now"]])}`;
   } else if (stage === "waiting") {
@@ -315,8 +319,14 @@ function followupCard(episode, episodes, settings, stored, all = false) {
     body = `<p><b>${Questions.escape(Questions.FOLLOWUP.acted)}</b></p>${buttons([["acted:no", "Not yet"], ["acted:yes", "Yes"]])}`;
   }
   card.innerHTML = `<h2>${Questions.escape(episode.site)} · ${new Date(episode.openedAt).toLocaleDateString()}</h2>${recall(episode)}${body}`;
-  for (const button of card.querySelectorAll("button[data-answer]")) {
+  // NOTE: [edge case callout] one answer per card: its buttons are disabled once one is clicked, and a card
+  // built again waits a moment before it takes a click (a double click would otherwise answer it too)
+  const answerButtons = [...card.querySelectorAll("button[data-answer]")];
+  for (const button of answerButtons) button.disabled = true;
+  setTimeout(() => { for (const button of answerButtons) button.disabled = false; }, 400);
+  for (const button of answerButtons) {
     button.onclick = async () => {
+      for (const each of answerButtons) each.disabled = true;
       const [step, chosen] = button.dataset.answer.split(":");
       const answer = step === "when" ? card.querySelector('select[name="when"]').value : chosen;
       card.dataset.busy = "yes";                 // (the storage listener leaves it to this answer)

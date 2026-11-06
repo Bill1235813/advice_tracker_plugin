@@ -15,7 +15,29 @@ version (one-click install) is in preparation; until then, follow the steps belo
 
 **How it works, in detail:** [`docs/advice-tracker-design.pdf`](docs/advice-tracker-design.pdf).
 
-## What's new in version 0.6.9 (v0.6 branch)
+## What's new in version 0.6.10 (v0.6 branch)
+
+Fixes to 0.6.9's follow-up, found in a review:
+- On the day you planned to act, the Outcomes page asks again **"Did you act on this decision yet?"**
+  (0.6.9 asked only when you plan to act, so you could not say you had).
+- A minimized follow-up bar no longer keeps later follow-up questions off its tab (the chat sites do
+  not reload when you switch conversations).
+- The follow-up's buttons take one answer each (a double click no longer answers twice, or the next
+  question too).
+- A check-in from before 0.6.9 shows its date on the Outcomes page (it said "Invalid Date").
+- Each page shows its own waiting conversation per site: past ones on the Outcomes page, those from
+  other devices on the quick check-ins page (0.6.9 could show neither when the site's turn was the other kind).
+- The Outcomes reminder does not come when you opened the page since the last one.
+- Past conversations: one you annotated on an earlier install or another computer is not asked about
+  again; none is looked for until the study server said which ones your participant ID annotated (also
+  among the conversations read for other devices); changing the participant ID asks the server again.
+- ChatGPT: the reply to a prompt ChatGPT sent for you is not read also when your message before it got
+  only a picture as its answer.
+- Your one-sentence description of a conversation stays off the pages of other chat sites, also when the
+  tab moved to another site meanwhile.
+- The extension's description no longer says "two weeks later" (and fits Chrome's 132 characters).
+
+## What's new in version 0.6.9
 
 - **A follow-up instead of the two-week check-in.** From a week after you asked the AI for advice
   (when that conversation is over at the latest), a small pop-up on a chat site's page asks about it:
@@ -374,7 +396,7 @@ e-mail.
 - **"No participant ID set"** in the popup: open the settings page and save your ID.
 - **"Advice Tracker was updated meanwhile"** in a panel: the extension was updated or reloaded while
   the panel was open, so it could not send your answer. Reload the chat page; questions that still
-  wait for an answer are listed under the extension icon → **Open questions & check-ins**.
+  wait for an answer are listed under the extension icon → **Quick check-ins** and **Outcomes**.
 - **Chrome removed the extension** after an update: repeat "Load unpacked" from the same folder.
 - **No past or other-device conversations are found**: they are read only while a page of the site
   is open, a little at a time (one request a minute), and only for the account you were signed in
@@ -395,7 +417,7 @@ e-mail.
 
 ## For reviewers and developers
 
-- `manifest.json` (Manifest V3, version 0.6.9): permissions `storage`, `unlimitedStorage` (no
+- `manifest.json` (Manifest V3, version 0.6.10): permissions `storage`, `unlimitedStorage` (no
   install warning), `alarms`, `notifications`, and host permissions for the five chat sites (plus
   `localhost` for the mock test page); no remote code.
 - Past and other-device conversations (0.6, opt-in): `content/history.js` answers the worker's

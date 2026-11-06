@@ -1221,11 +1221,12 @@ async function keepOutcomesAlarm() {
 
 async function remindOutcomes() {
   const settings = await getSettings(), now = Date.now(), end = await studyEnd();
+  const lastCheck = (await load("outcomesCheckedAt")) ?? now - OUTCOMES_REMINDER_DAYS * DAY_MS;
   await save("outcomesCheckedAt", now);
   if (!settings.participantId) return;
   const waiting = (await loadAll("episode:")).filter(([, record]) => Modes.followupAsks(Modes.followupStage(record, now, end))).length;
-  // (an hour of slack for the alarm's own timing)
-  if (!waiting || now < ((await load("outcomesSeenAt")) ?? 0) + OUTCOMES_REMINDER_DAYS * DAY_MS - 3600 * 1000) return;
+  // (not when the participant opened the page since the last check)
+  if (!waiting || ((await load("outcomesSeenAt")) ?? 0) >= lastCheck) return;
   // NOTE: [design thought] notifications never show conversation text (IRB protocol)
   chrome.notifications.create("outcomes", {
     type: "basic", iconUrl: "icons/icon128.png", title: "Advice Tracker: how did your decisions go?",
@@ -1503,7 +1504,7 @@ async function nextToRead(host, list, windows, settings) {
     const changed = list.items.find((item) => item.u >= windows.appFrom && !waits(known.get(item.id), item));
     if (changed) return { id: changed.id, reason: "app" };
   }
-  if (!settings.readPast || !(await load("joinedChecked")) || (await load("pastAnnotated")) === undefined || (await pastLeft()) <= 0 ||
+  if (!settings.readPast || !(await load("joinedChecked")) || (await pastLeft()) <= 0 ||
       [...known.values()].filter((hist) => hist.pastRead).length >= PAST_SCAN_MAX) return null;
   const past = list.items.find((item) => (item.c ?? item.u) < windows.pastBefore && item.u >= windows.pastFrom &&
                                          (!known.has(item.id) || (!known.get(item.id).judge && !waits(known.get(item.id), item))));
@@ -1513,9 +1514,12 @@ async function nextToRead(host, list, windows, settings) {
 // How many more past conversations may be found: at most pastLimit waiting or annotated (skipped ones
 // and "No" do not count), on this computer or, under the same participant ID, on any other install
 // (the study server's list: checkPastAnnotated). The same conversation counts once (its fingerprint).
+// None until the server answered: not in a past-only read, nor among the past turns of a conversation read
+// for its turns from other devices.
 async function pastLeft() {
+  const elsewhere = await load("pastAnnotated");
+  if (elsewhere === undefined) return 0;
   const here = (await loadAll("episode:")).filter(([, record]) => record.source === "past").map(([, record]) => fingerprint(record));
-  const elsewhere = (await load("pastAnnotated")) || [];
   return STUDY_CONFIG.pastLimit - new Set([...here, ...elsewhere]).size;
 }
 
@@ -1962,6 +1966,12 @@ async function followHistoryEpisode(hist, judge, page, settings) {
                   webWaitSince: null, pastPending: false };
   if (!record) {
     if (((await load("hdone")) || []).includes(judge.episodeId)) return letGo;
+    // NOTE: [edge case callout] a past conversation this participant ID annotated already, on an earlier install
+    // or another computer (the study server's list: checkPastAnnotated), is not asked about again
+    if (judge.pastPending && ((await load("pastAnnotated")) || []).includes(fingerprint({ chatKey: hist.chat, opening: judge.opening, openedAt: judge.openedAt }))) {
+      await rememberDecided(judge.episodeId);
+      return letGo;
+    }
     if (!page || !historyAllowed(settings, hist.host)) return judge;
     const source = judge.pastPending ? "past" : "app";
     const openingText = page.userTurns[judge.opening - 1] || "";
@@ -3001,6 +3011,8 @@ chrome.storage.onChanged.addListener((changes, area) => {
     (after.participantId ? noteJoined() : Promise.resolve()).then(statusChanged).then(keepPausedReminder);
   }
   if (differs("excludedHosts")) forgetExcluded();
+  // (the past conversations annotated under the earlier ID do not count for the new one: asked again)
+  if (differs("participantId")) remove("pastAnnotated").then(() => checkPastAnnotated(after));
   // reading past conversations, or those from other devices, turned on or off: recorded (with the
   // version of the text agreed to), and the walks start again (opting out stops it, and its unanswered
   // episodes go)

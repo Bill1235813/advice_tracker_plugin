@@ -165,8 +165,13 @@
     if (open?.dataset.episode === id) open.finish(null);
   }
 
+  // The follow-up pop-up, or its minimized bar, goes (with its countdown)
+  function dismissFollowup() {
+    document.getElementById("advice-tracker-followup")?.dismiss();
+  }
+
   function render(episode, settings) {
-    document.getElementById("advice-tracker-followup")?.remove();          // (a page replaces the follow-up pop-up)
+    dismissFollowup();                       // (a page replaces the follow-up pop-up)
     const host = document.createElement("div");
     host.id = "advice-tracker-host";
     host.dataset.episode = episode.id;
@@ -282,7 +287,7 @@
     if (document.getElementById("advice-tracker-host") || document.getElementById("advice-tracker-offer")) return false;
     // NOTE: [design thought] a question about a conversation going on now comes first: the follow-up
     // pop-up (about one from days ago) goes, and is asked again another day
-    document.getElementById("advice-tracker-followup")?.remove();
+    dismissFollowup();
     const host = document.createElement("div");
     host.id = "advice-tracker-offer";
     host.dataset.episode = episode.id;
@@ -404,9 +409,13 @@
   // named by its site and date, and by the participant's own one-sentence summary only on that site's own
   // page (item.summary is empty elsewhere). Nobody is pressed: "Not yet" minimizes it (asked again the next
   // day), and so does leaving it alone for settings.updateSeconds while it is on the screen. Minimized, it
-  // is a small bar that opens again on a click, or goes with ✕. Returns false when something is already open.
+  // is a small bar that opens again on a click, or goes with ✕. Returns false when a page or another pop-up is open.
+  // NOTE: [edge case callout] an earlier follow-up pop-up, or its minimized bar, is replaced: the chat sites are
+  // single-page apps, so a bar left on a tab open for days would otherwise keep every later question off it
+  // (the background offers one at most every few hours, and only when it is due)
   function offerFollowup(item, settings) {
-    if (["advice-tracker-host", "advice-tracker-offer", "advice-tracker-followup"].some((id) => document.getElementById(id))) return false;
+    if (["advice-tracker-host", "advice-tracker-offer"].some((id) => document.getElementById(id))) return false;
+    dismissFollowup();
     const host = document.createElement("div");
     host.id = "advice-tracker-followup";
     host.dataset.episode = item.id;
@@ -440,7 +449,8 @@
       byId("state").textContent = "(research study)";
       byId("toggle").textContent = "minimize";
     };
-    byId("close").onclick = () => { clearInterval(timer); host.remove(); };
+    host.dismiss = () => { clearInterval(timer); host.remove(); };
+    byId("close").onclick = () => host.dismiss();
     const outcomes = byId("outcomes");
     if (outcomes) outcomes.onclick = (event) => { event.preventDefault(); send({ type: "open_outcomes" }); };
     // it is seen once the page is visible; the countdown then runs while the page is visible and nothing
@@ -470,13 +480,20 @@
       } else {
         step.innerHTML = `<b>${escape(Questions.FOLLOWUP[name])}</b>${buttons([["no", "Not yet"], ["yes", "Yes"]])}`;
       }
-      for (const button of step.querySelectorAll("button")) button.onclick = () => clicked(name, button.dataset.answer);
+      // NOTE: [edge case callout] a step's buttons wait a moment before they take a click: a double click on
+      // the step before would otherwise answer this one too
+      for (const button of step.querySelectorAll("button")) {
+        button.disabled = true;
+        button.onclick = () => clicked(name, button.dataset.answer);
+      }
+      setTimeout(() => { for (const button of step.querySelectorAll("button")) button.disabled = false; }, 400);
     };
     const finish = (text, state) => {
       byId("step").innerHTML = `<p class="done">${text}</p>`;
       setTimeout(() => (state ? minimize(state) : host.remove()), 2500);
     };
     const clicked = async (name, value) => {
+      for (const button of byId("step").querySelectorAll("button")) button.disabled = true;      // (one answer per step)
       touched = true;
       byId("left").textContent = "";
       if (name === "outcome") {
