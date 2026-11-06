@@ -28,6 +28,8 @@ button { padding: 8px 18px; border-radius: 8px; border: 1px solid #4f5bd5; backg
 button.secondary { background: #f1f1ec; color: #1f2328; border-color: #d9d9d3; }
 .done { color: #1e7f4f; font-weight: 600; }
 .empty { color: #647084; }
+.pages { margin: 6px 0 0; font-size: 13px; } .pages a { color: #4f5bd5; }
+h2.section { font-size: 16px; margin: 26px 0 4px; }
 .transcript-view { max-height: 260px; overflow: auto; white-space: pre-wrap; background: #f3f4fb; padding: 8px; font-size: 12.5px; }
 .reading { position: fixed; top: 16px; right: 16px; width: 260px; background: #fff; border: 1px solid #e4e4de; border-radius: 10px; padding: 10px 12px; font-size: 12px; line-height: 1.4; color: #1f2328; box-shadow: 0 1px 4px rgba(0,0,0,.05); }
 .reading h2 { font-size: 12.5px; margin: 0 0 6px; } .reading ul { list-style: none; margin: 0; padding: 0; }

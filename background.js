@@ -4,8 +4,9 @@
 //   order (lib/episodes.js: the advice judge while searching, the continuation judge inside an
 //   episode) -> an episode ends at a topic switch, or after endQuietMinutes without activity
 //   -> the participant is asked for ratings as the episode's rating mode says (lib/modes.js:
-//   frequent, switching, periodical or combined) -> check-in followupSeconds after the episode's first
-//   request (14 days).
+//   frequent, switching, periodical or combined) -> the follow-up, followupSeconds after the episode's
+//   first request (7 days): did they decide, did they act, then how it turned out (lib/modes.js
+//   followupStage; a pop-up on the chat page, and the outcomes page).
 // Every text leaves the computer only after local redaction (lib/redact.js): the episode's
 // conversation (the participant's messages and the assistant's replies) is uploaded with every set
 // of answers, and once more, complete, when an episode with answers ends.
@@ -36,7 +37,7 @@ importScripts("config.js", "lib/sites.js", "lib/episodes.js", "lib/modes.js", "l
 const DEFAULT_SETTINGS = {
   participantId: "", serverUrl: STUDY_CONFIG.serverUrl, studyKey: STUDY_CONFIG.studyKey, paused: false, pausedAt: null,
   ratingMode: STUDY_CONFIG.ratingMode || "combined",      // "frequent" | "switching" | "periodical" | "combined"
-  followupSeconds: 14 * 24 * 3600,   // the check-in this long after an episode's first request (the settings page can shorten it for a test)
+  followupSeconds: 7 * 24 * 3600,    // the follow-up begins this long after an episode's first request (the settings page can shorten it for a test)
   endQuietMinutes: 24 * 60,    // an episode also ends after this long without activity in its chat
   cutDays: 7,                  // ... and is complete this many days after its first request (as at a change of topic)
   pauseMinutes: 3,            // periodical, combined: a pause is this long without typing in the episode's chat
@@ -50,6 +51,8 @@ const RETRY_MINUTES = 2;     // after a failed judgment, or when the server cann
 const SNOOZE_MINUTES = 60;   // "later (1 h)"
 const ASK_WAIT_MINUTES = 5;  // a question about a reply waits at most this long for the reply to be complete
 const HEARTBEAT_MINUTES = 12 * 60;
+const QUESTION_EXPIRE_DAYS = 14;     // a question about an episode never answered goes this long after its first request
+const FOLLOWUP_GAP_MS = 4 * 3600 * 1000;   // follow-up pop-ups about different conversations at most this often
 let generation = 0;          // "delete all data" bumps it; judging loops begun before stop writing
 let deletingSince = 0;       // when "delete all data" last ended (Infinity while it runs): snapshots taken before are ignored
 
@@ -241,8 +244,9 @@ async function onView(message, sender) {
   for (const [, record] of await loadAll("episode:")) {
     if (record.status === "open" && record.chatKey !== view.key && !ownText(record)) await ask(record.id, "onOtherConversation", view);
   }
-  // a page of the site came to the front: its next question about a conversation read from the site
-  await offerQueued(view);
+  // a page of the site came to the front: its next question about a conversation read from the site, else
+  // a follow-up question (0.6.9)
+  if (!(await offerQueued(view))) await offerFollowup(view);
 }
 
 // The participant typed in a chat: for an open periodical or combined episode, the start of a new
@@ -1049,12 +1053,13 @@ async function onRatingSubmitted(message) {
   chrome.alarms.clear(`remind|${record.id}`);
   chrome.alarms.clear(`ask|${record.id}`);
   if (!record.checkin) {
-    // NOTE: [design thought] the check-in counts from the episode's first request, not from its
-    // end or from the answers: an episode can go on for a while, and answers can come days later
-    // (one found on another device days later gets it a week after its first answers at the earliest)
-    const dueAt = Math.max(record.openedAt + settings.followupSeconds * 1000, record.source === "app" ? Date.now() + 7 * DAY_MS : 0);
-    await updateEpisode(record.id, (current) => ({ ...current, checkin: { dueAt, doneAt: null } }));
-    chrome.alarms.create(`checkin|${record.id}`, { when: dueAt });
+    // NOTE: [design thought] the follow-up counts from the episode's first request, not from its end
+    // or from the answers: an episode can go on for a while, and answers can come days later. With the
+    // study's 7 days it begins when the conversation is complete at the latest (the cut). One found on
+    // another device days later begins the follow-up time after its first answers at the earliest.
+    const askFrom = Math.max(record.openedAt, record.source === "app" ? Date.now() : 0) + settings.followupSeconds * 1000;
+    await updateEpisode(record.id, (current) => ({ ...current, checkin: { askFrom, nextAt: null, decision: null, dueAt: null, doneAt: null } }));
+    await armFollowup(record.id);
   }
   // NOTE: [design thought] the answers go with the conversation they are about (turns
   // opening..answeredEnd), both redacted on this computer
@@ -1097,12 +1102,137 @@ async function onCheckinSubmitted(message) {
     const owed = current.answers && current.messages && !current.transcriptSent && !textStays(current, settings);
     return current.status === "open" || owed ? current : doneRecord(current);      // an open one becomes done when it ends
   });
+  // (how the follow-up went, 0.6.9: when it began, the answers about deciding and acting with their times, how
+  // often its pop-up was seen; due_at is when the answers made the outcome questions ready, null when the
+  // study's last day did. Times and choices only)
+  const checkin = record.checkin;
   await upload("checkin", { episode: record.id, site: record.site, source: record.source ?? "web", mode: record.mode,
                             answers: redactAnswers(message.answers, settings.redactNames), related_later: later,
+                            followup: { ask_from: checkin.askFrom ?? null, due_at: checkin.dueAt ?? null, shown: checkin.shown ?? 0,
+                                        ...(checkin.decision || {}) },
                             ...(reviewed ? { transcript: Redact.redact(message.transcript, settings.redactNames).text,
                                              transcript_edited: Boolean(message.edited) } : {}) }, settings);
   await count("checked_in");
   await updateBadge();
+}
+
+// ---------------- the follow-up (0.6.9): did they decide, did they act, how did it turn out ----------------
+// From followupSeconds after the request (lib/modes.js followupStage), a small pop-up on a page of a chat
+// site asks about one conversation at a time: "Did you make a decision yet?" (not yet: again the next
+// day), then "Did you act on this decision yet?" (not yet: when do you plan to?). Once the outcome
+// questions are ready it offers the outcomes page, which lists every conversation whose follow-up is not
+// done, oldest first, with the same questions. While a question waits, a notification reminds of that page
+// every outcomesReminderDays.
+
+// When the participant's study period ends (lib/modes.js studyEnd)
+async function studyEnd() {
+  return Modes.studyEnd({ pastBefore: await load("pastBefore"), joinedAt: await load("joinedAt") }, STUDY_CONFIG.studyDays);
+}
+
+// The follow-up's stage changes with time: when it begins, at nextAt, on the study's last day. An alarm
+// at the next of these updates the badge (the question itself comes at the next page the participant opens).
+async function armFollowup(id) {
+  const checkin = (await load(`episode:${id}`))?.checkin, now = Date.now();
+  const times = checkin && !checkin.doneAt ? [checkin.askFrom, checkin.nextAt, checkin.dueAt, Modes.lastCall(checkin, await studyEnd())] : [];
+  const later = times.filter((at) => Number.isFinite(at) && at > now);
+  if (later.length) chrome.alarms.create(`checkin|${id}`, { when: Math.min(...later) });
+  else chrome.alarms.clear(`checkin|${id}`);
+}
+
+// The participant is in the middle of a conversation on this page: an advice episode is open in its chat,
+// or they sent something or the page changed within BUSY_PAGE_MS (the log of sends stays when a chat that
+// is not advice lets go of its copy)
+async function busyOn(view, now) {
+  const chat = await load(`chat:${view.key}`), snapshot = await load(`snap:${view.key}`);
+  const lastSent = ((await load(`sentlog:${view.key}`)) || []).at(-1)?.at ?? 0;
+  return chat?.state === "episode" || now < Math.max(snapshot?.changedAt ?? 0, lastSent) + BUSY_PAGE_MS;
+}
+
+// A follow-up question on the page the participant just opened (`view`): about the oldest conversation
+// whose follow-up asks something now and was not on the screen in the last day ("not yet": the next day).
+// None while tracking is off, on an excluded site, while they are in the middle of a conversation there,
+// or within FOLLOWUP_GAP_MS of the last one.
+async function offerFollowup(view) {
+  const settings = await getSettings(), now = Date.now();
+  if (!view?.url || trackingOff(settings) || excluded(settings, view.url) || (await busyOn(view, now))) return false;
+  if (now < ((await load("followupOfferedAt")) ?? 0) + FOLLOWUP_GAP_MS) return false;
+  const end = await studyEnd();
+  const waiting = (await loadAll("episode:")).map(([, record]) => record).filter((record) => Modes.followupAsks(Modes.followupStage(record, now, end)));
+  const due = waiting.filter((record) => now >= (record.checkin.shownAt ?? 0) + DAY_MS).sort((a, b) => a.openedAt - b.openedAt);
+  if (!due.length) return false;
+  const record = due[0];
+  // NOTE: [design thought] the conversation is named by the participant's own one-sentence summary (their
+  // answer "what decision were you asking about?"), and only on a page of its own site: the page of another
+  // chat company gets the site and the date alone, as every question about another site
+  const item = { id: record.id, site: record.site, openedAt: record.openedAt, stage: Modes.followupStage(record, now, end),
+                 summary: view.site === record.site ? record.answers?.decision || "" : "", more: waiting.length - 1 };
+  let response = null;
+  try {
+    response = await chrome.tabs.sendMessage(view.tabId, { type: "offer_followup", item, settings: panelSettings(settings) });
+  } catch (error) { /* tab closed, or a page without the content script */ }
+  if (!response?.shown) return false;
+  await save("followupOfferedAt", now);
+  return true;
+}
+
+// The follow-up pop-up was on the screen: it counts as that conversation's question of the day
+async function onFollowupSeen(message) {
+  await updateEpisode(message.id, (current) => (current.checkin
+    ? { ...current, checkin: { ...current.checkin, shownAt: Date.now(), shown: (current.checkin.shown ?? 0) + 1 } } : current));
+  await count("asked_followup");
+}
+
+// An answer to a follow-up question, from the pop-up or the outcomes page (`where`): the follow-up goes on as
+// lib/modes.js followupAnswer says, the caller hears the stage after it (the pop-up's next step), and the
+// answer is uploaded (how long an advice conversation takes to turn into a decision is one of the pilot's
+// questions). An answer to a question no longer open (answered meanwhile elsewhere) changes nothing.
+async function onFollowupAnswer(message, reply) {
+  const now = Date.now(), end = await studyEnd();
+  let taken = false;
+  const record = await updateEpisode(message.id, (current) => {
+    const checkin = Modes.followupAnswer(current, message.step, message.answer, now, end);
+    if (!checkin) return current;
+    taken = true;
+    return { ...current, checkin };
+  });
+  const stage = record ? Modes.followupStage(record, now, end) : null;
+  reply({ stage, nextAt: record?.checkin?.nextAt ?? null });
+  if (!taken) return;
+  await armFollowup(record.id);
+  await updateBadge();
+  await count(`followup_${message.step}_${message.answer}`);
+  await upload("followup", { episode: record.id, site: record.site, source: record.source ?? "web", mode: record.mode, step: message.step,
+                             answer: message.answer, where: message.where, stage, days_since_request: Math.round(((now - record.openedAt) / DAY_MS) * 10) / 10,
+                             next_at: record.checkin.nextAt ?? null, planned_at: record.checkin.decision?.plannedAt ?? null,
+                             shown: record.checkin.shown ?? 0, study_end: Number.isFinite(end) ? end : null }, await getSettings());
+}
+
+// Every outcomesReminderDays while a follow-up question waits (lib/modes.js followupAsks): a notification that
+// opens the outcomes page, unless the participant had that page open since the last one.
+// NOTE: [edge case callout] as the heartbeat's, the alarm is created only when missing and timed from the
+// last check: created again at every browser start, it would never come for someone who closes Chrome daily
+const OUTCOMES_REMINDER_DAYS = STUDY_CONFIG.outcomesReminderDays ?? 2;
+async function keepOutcomesAlarm() {
+  if (await chrome.alarms.get("outcomesReminder")) return;
+  const period = OUTCOMES_REMINDER_DAYS * DAY_MS;
+  chrome.alarms.create("outcomesReminder", { when: Math.max(((await load("outcomesCheckedAt")) ?? Date.now()) + period, Date.now() + 60000),
+                                             periodInMinutes: period / 60000 });
+}
+
+async function remindOutcomes() {
+  const settings = await getSettings(), now = Date.now(), end = await studyEnd();
+  await save("outcomesCheckedAt", now);
+  if (!settings.participantId) return;
+  const waiting = (await loadAll("episode:")).filter(([, record]) => Modes.followupAsks(Modes.followupStage(record, now, end))).length;
+  // (an hour of slack for the alarm's own timing)
+  if (!waiting || now < ((await load("outcomesSeenAt")) ?? 0) + OUTCOMES_REMINDER_DAYS * DAY_MS - 3600 * 1000) return;
+  // NOTE: [design thought] notifications never show conversation text (IRB protocol)
+  chrome.notifications.create("outcomes", {
+    type: "basic", iconUrl: "icons/icon128.png", title: "Advice Tracker: how did your decisions go?",
+    message: `${waiting === 1 ? "One of your advice conversations waits" : `${waiting} of your advice conversations wait`} for a few answers on your Outcomes page. Click to open it.`,
+    requireInteraction: true,
+  });
+  await count("reminded_outcomes");
 }
 
 // The episode is no longer asked about: "No" (not advice) on an episode without answers. An open
@@ -1192,23 +1322,23 @@ async function onConfirmAnswer(message, tabId) {
 }
 
 // The extension icon shows how many questions wait: ratings pages (lib/modes.js `waiting`) and
-// check-ins that are due.
+// follow-up questions (did you decide, did you act, the outcome questions).
 async function updateBadge() {
-  const now = Date.now();
+  const now = Date.now(), end = await studyEnd();
   const settings = await getSettings();
   // (a queued question whose kind is off, or whose site is excluded, cannot be asked: it does not count)
   const askable = (record) => !Modes.viaQueue(record) || (kindOn(settings, record) && !excluded(settings, record.url));
-  const waiting = (await loadAll("episode:")).filter(([, record]) => (Modes.waiting(record) && askable(record)) || Modes.checkinDue(record, now)).length;
+  const waiting = (await loadAll("episode:")).filter(([, record]) => (Modes.waiting(record) && askable(record)) ||
+                                                                      Modes.followupAsks(Modes.followupStage(record, now, end))).length;
   await chrome.action.setBadgeText({ text: waiting ? String(waiting) : "" });
   await chrome.action.setBadgeBackgroundColor({ color: "#4f5bd5" });
 }
 
-// A question nobody answered by the time the episode's check-in is due (followupSeconds after its
-// first request) is dropped: an ended episode never answered goes (with its text), and final
-// answers that never came leave the earlier ones as the final ones.
+// A question nobody answered QUESTION_EXPIRE_DAYS after the episode's first request (the day of its
+// check-in before 0.6.9) is dropped: an ended episode never answered goes (with its text), and final
+// answers that never came leave the earlier ones as the final ones (its follow-up then begins).
 async function expireWaiting() {
-  const settings = await getSettings();
-  const limit = Date.now() - settings.followupSeconds * 1000;
+  const limit = Date.now() - QUESTION_EXPIRE_DAYS * DAY_MS;
   // NOTE: [edge case callout] 0.3 kept no start time, only the end (the update gives a 0.3 record
   // its end as start, but the heartbeat a new worker sends at once can come before that)
   // (an episode from another device counts from when it was found; a past one never annotated goes,
@@ -1373,7 +1503,7 @@ async function nextToRead(host, list, windows, settings) {
     const changed = list.items.find((item) => item.u >= windows.appFrom && !waits(known.get(item.id), item));
     if (changed) return { id: changed.id, reason: "app" };
   }
-  if (!settings.readPast || !(await load("joinedChecked")) || (await pastLeft()) <= 0 ||
+  if (!settings.readPast || !(await load("joinedChecked")) || (await load("pastAnnotated")) === undefined || (await pastLeft()) <= 0 ||
       [...known.values()].filter((hist) => hist.pastRead).length >= PAST_SCAN_MAX) return null;
   const past = list.items.find((item) => (item.c ?? item.u) < windows.pastBefore && item.u >= windows.pastFrom &&
                                          (!known.has(item.id) || (!known.get(item.id).judge && !waits(known.get(item.id), item))));
@@ -1381,9 +1511,12 @@ async function nextToRead(host, list, windows, settings) {
 }
 
 // How many more past conversations may be found: at most pastLimit waiting or annotated (skipped ones
-// and "No" do not count)
+// and "No" do not count), on this computer or, under the same participant ID, on any other install
+// (the study server's list: checkPastAnnotated). The same conversation counts once (its fingerprint).
 async function pastLeft() {
-  return STUDY_CONFIG.pastLimit - (await loadAll("episode:")).filter(([, record]) => record.source === "past").length;
+  const here = (await loadAll("episode:")).filter(([, record]) => record.source === "past").map(([, record]) => fingerprint(record));
+  const elsewhere = (await load("pastAnnotated")) || [];
+  return STUDY_CONFIG.pastLimit - new Set([...here, ...elsewhere]).size;
 }
 
 // What the tab answered. For the list, the site's own pauses are kept: 429 (it asked to wait: from 30
@@ -2108,11 +2241,8 @@ async function offerQueued(view) {
   if (!view.url || trackingOff(settings) || excluded(settings, view.url)) return false;
   const queue = (await load(`qstate:${view.site}`)) || {};
   if (now < (queue.invitedAt ?? 0) + INVITE_GAP_MS) return false;
-  // not while the participant is in the middle of a conversation here (a send or a change within 5 min:
-  // the log of sends stays when a chat that is not advice lets go of its copy)
-  const chat = await load(`chat:${view.key}`), snapshot = await load(`snap:${view.key}`);
-  const lastSent = ((await load(`sentlog:${view.key}`)) || []).at(-1)?.at ?? 0;
-  if (chat?.state === "episode" || now < Math.max(snapshot?.changedAt ?? 0, lastSent) + BUSY_PAGE_MS) return false;
+  // not while the participant is in the middle of a conversation here
+  if (await busyOn(view, now)) return false;
   // past ones: at most PAST_INVITES_A_DAY in any 24 hours, and none after PAST_MISSES_MAX missed in a row
   const recentPast = (queue.pastTimes || []).filter((at) => at > now - DAY_MS);
   const pastHeld = (queue.pastMisses ?? 0) >= PAST_MISSES_MAX || recentPast.length >= PAST_INVITES_A_DAY;
@@ -2179,7 +2309,10 @@ async function onInviteAnswer(message, tabId) {
     });
   }
   // (an invitation answered elsewhere meanwhile, with nothing new since, opens the list instead)
-  if (message.answer === "open") openCheckin(record && Modes.stillDue(record) ? `?item=${encodeURIComponent(message.id)}` : "");
+  if (message.answer === "open") {
+    const query = record && Modes.stillDue(record) ? `?item=${encodeURIComponent(message.id)}` : "";
+    if (record?.source === "past") openOutcomes(query); else openCheckin(query);
+  }
   if (message.answer !== "open") await offerRefused(tabId);
 }
 
@@ -2252,8 +2385,10 @@ async function studyClock() {
 // in the queue, and goes with the ID once one is saved (flushQueue)
 async function upload(type, payload, settings) {
   const started = generation;
-  const event = { type, participant_id: settings.participantId, sent_at: Date.now(), payload };
-  if (settings.participantId && (await post(event, settings))) return;
+  let event = { type, participant_id: settings.participantId, sent_at: Date.now(), payload };
+  const outcome = settings.participantId ? await post(event, settings) : "failed";
+  if (outcome === "sent") return;
+  if (outcome === "rejected") event = { ...event, rejections: 1 };
   await serialized("queue", async () => {
     const queue = (await load("queue")) || [];
     // NOTE: [edge case callout] dropped, not queued: an event of an episode marked not advice
@@ -2267,15 +2402,24 @@ async function upload(type, payload, settings) {
   });
 }
 
+// NOTE: [design thought] the server refused the event itself (400 bad request, 413 too large, 422 not
+// valid): sent again unchanged, it is refused again. It is tried REJECTED_RETRIES more times (with the
+// queue, every 30 minutes) and then dropped, so it does not go on every 30 minutes for good. Any other
+// failure may pass later and is tried until it does: no network, the server down (5xx), the study key
+// (401, 403) or the server's address (404) wrong until the settings are fixed, or a request to wait (408, 429).
+const REJECTED_RETRIES = 2;
+const refusesEvent = (status) => status >= 400 && status < 500 && ![401, 403, 404, 408, 429].includes(status);
+
+// Post one event: "sent", "rejected" (refused for itself) or "failed" (to be tried again)
 async function post(event, settings) {
   try {
     const response = await fetch(`${settings.serverUrl}/events`, {
       method: "POST", headers: { "Content-Type": "application/json", "X-Study-Key": settings.studyKey },
       body: JSON.stringify(event), signal: AbortSignal.timeout(25000),
     });
-    return response.ok;
+    return response.ok ? "sent" : refusesEvent(response.status) ? "rejected" : "failed";
   } catch (error) {
-    return false;
+    return "failed";
   }
 }
 
@@ -2309,8 +2453,14 @@ async function flushQueue() {
       const found = await queuedEvent(queued);
       const event = found && found !== "wait" && !found.participant_id ? { ...found, participant_id: settings.participantId } : found;
       // (an event that waits, or could not go, stays as it may go now: without a conversation that stays)
-      if (event === "wait") remaining.push(queued);
-      else if (event && !(await post(event, settings))) remaining.push(event);
+      if (event === "wait") { remaining.push(queued); continue; }
+      if (!event) continue;
+      // (how often the server refused it is kept with it in the queue, not sent)
+      const { rejections = 0, ...posted } = event;
+      const outcome = await post(posted, settings);
+      if (outcome === "failed") remaining.push(event);
+      else if (outcome === "rejected" && rejections < REJECTED_RETRIES) remaining.push({ ...event, rejections: rejections + 1 });
+      else if (outcome === "rejected") { await count("upload_rejected"); await count(`upload_rejected_${posted.type}`); }
     }
     if (started !== generation) return;
     await save("queue", remaining);
@@ -2354,6 +2504,8 @@ async function heartbeat() {
     open_episodes: episodes.filter((episode) => episode.status === "open").length,
     waiting_rating: episodes.filter(Modes.waiting).length,
     waiting_checkin: episodes.filter((episode) => episode.checkin && !episode.checkin.doneAt).length,
+    // (0.6.9: how many follow-ups are at each stage, lib/modes.js followupStage)
+    followup_stages: followupCounts(episodes, Date.now(), await studyEnd()),
     waiting_past: episodes.filter((episode) => episode.source === "past" && episode.status === "pending").length,
     history: await historyStates(), ...(await studyClock()),
   }, settings);
@@ -2361,6 +2513,16 @@ async function heartbeat() {
   await noteAlive();
   await fetchStudyConfig(settings);
   await checkJoined(settings);
+  await checkPastAnnotated(settings);
+}
+
+function followupCounts(episodes, now, end) {
+  const counts = {};
+  for (const episode of episodes) {
+    const stage = Modes.followupStage(episode, now, end);
+    if (stage) counts[stage] = (counts[stage] || 0) + 1;
+  }
+  return counts;
 }
 
 // The heartbeat, if the last one is about 12 hours old. The alarm comes here, and so does every
@@ -2524,6 +2686,22 @@ async function checkJoined(settings) {
   } catch (error) { /* offline: asked again at the next heartbeat or switch */ }
 }
 
+// NOTE: [edge case callout] the limit of pastLimit past conversations is the participant's, not the
+// install's: an install made again (or one on a second computer) would count from zero. The study server
+// knows which past conversations this participant ID annotated, from any install (GET /past: their
+// fingerprints); pastLeft counts them too. Asked at every heartbeat and when reading is turned on; past
+// conversations are looked for only once it was asked (a server without the route answers 404: then
+// this install's own count stands).
+async function checkPastAnnotated(settings) {
+  if (!settings.participantId) return;
+  try {
+    const query = new URLSearchParams({ participant_id: settings.participantId });
+    const response = await fetch(`${settings.serverUrl}/past?${query}`, { headers: { "X-Study-Key": settings.studyKey }, signal: AbortSignal.timeout(10000) });
+    if (!response.ok && response.status !== 404) return;
+    await save("pastAnnotated", response.ok ? (await response.json()).annotated : []);
+  } catch (error) { /* offline: asked again at the next heartbeat or switch */ }
+}
+
 // The study server can switch reading off for a site without a new release (GET /config:
 // {history: {"chatgpt.com": false}}); a server without it leaves things as they are
 async function fetchStudyConfig(settings) {
@@ -2590,6 +2768,7 @@ async function deleteAll() {
   await save("deletedAt", deletingSince);
   await chrome.alarms.clearAll();
   await keepHeartbeatAlarm();
+  await keepOutcomesAlarm();
   await updateBadge();
   // the switches were turned off with the data: reported as any opt-out is (the settings' own change
   // event does not fire for a cleared store)
@@ -2603,8 +2782,13 @@ function updateSettings(changes) {
   });
 }
 
+// The extension's two pages of questions: the quick check-ins (ratings) and the outcomes page (0.6.9: the
+// follow-ups, and the past conversations)
 function openCheckin(query) {
   chrome.tabs.create({ url: chrome.runtime.getURL(`ui/checkin.html${query}`) });
+}
+function openOutcomes(query) {
+  chrome.tabs.create({ url: chrome.runtime.getURL(`ui/outcomes.html${query}`) });
 }
 
 // ---------------- event wiring ----------------
@@ -2623,6 +2807,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
   if (message.type === "delete_all") {
     deleteAll().then(() => sendResponse({ ok: true }));
+    return true;
+  }
+  if (message.type === "followup_answer") {
+    onFollowupAnswer(message, sendResponse);
     return true;
   }
 
@@ -2646,6 +2834,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       finished(() => openCheckin(`?rate=${encodeURIComponent(message.id)}&stage=${encodeURIComponent(message.stage || "")}`));
       break;
     case "checkin_submitted": onCheckinSubmitted(message); break;
+    case "followup_seen": onFollowupSeen(message); break;
+    case "open_outcomes": openOutcomes(message.id ? `?episode=${encodeURIComponent(message.id)}` : ""); break;
     case "update_answer": offerAnswered(message).then(() => onUpdateAnswer(message)).then(() => offerRefused(tabId)); break;
     case "confirm_answer": offerAnswered(message).then(() => onConfirmAnswer(message, tabId)); break;
     case "invite_answer": offerAnswered(message).then(() => onInviteAnswer(message, tabId)); break;
@@ -2669,26 +2859,23 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   else if (kind === "ask") await askDue(name);         // the reply did not settle yet
   else if (kind === "remind") await onReminder(name);
   else if (kind === "checkin") {
-    // one notification, on the day; after that the check-in waits under the extension icon
-    const record = await updateEpisode(name, (current) => (current.checkin ? { ...current, checkin: { ...current.checkin, notifiedAt: Date.now() } } : current));
-    if (record && Modes.checkinDue(record, Date.now())) {
-      chrome.notifications.create(`checkin|${name}`, {
-        type: "basic", iconUrl: "icons/icon128.png", title: "Advice Tracker: follow-up check-in",
-        message: "How did it go? Tell us what you decided after asking an AI assistant for advice (about 5-10 min).",
-        requireInteraction: true,
-      });
-    }
+    // the follow-up's stage changed (it began, the day after "not yet", the planned day, the study's last
+    // day): the badge says so, and the question comes on the next page the participant opens
     await updateBadge();
+    await armFollowup(name);
   } else if (kind === "flush") await flushQueue();
   else if (kind === "heartbeat") await heartbeatIfDue();
   else if (kind === "pausedReminder") await remindPaused();
+  else if (kind === "outcomesReminder") await remindOutcomes();
 });
 
 chrome.notifications.onClicked.addListener(async (id) => {
   const [kind, episode] = id.split("|");
   chrome.notifications.clear(id);
   if (kind === "paused") return chrome.runtime.openOptionsPage();
-  if (kind !== "rate") return openCheckin(`?checkin=${encodeURIComponent(episode)}`);
+  if (kind === "outcomes") return openOutcomes("");
+  // (a check-in notification from before 0.6.9 that is still in the tray)
+  if (kind === "checkin") return openOutcomes(`?episode=${encodeURIComponent(episode)}`);
   // NOTE: [edge case callout] a notification can stay in the tray after its question was answered
   // another way: with nothing new since, it opens the list of what waits, not the episode again
   const record = await load(`episode:${episode}`);
@@ -2712,9 +2899,7 @@ async function resumeAll() {
     if (record.status === "open" && record.heldBy === "history" && !record.walk) {
       chrome.alarms.create(`heldcut|${record.id}`, { when: Math.max(record.openedAt + (await getSettings()).cutDays * DAY_MS, soon) });
     }
-    if (record.checkin && !record.checkin.doneAt && !record.checkin.notifiedAt) {
-      chrome.alarms.create(`checkin|${record.id}`, { when: Math.max(record.checkin.dueAt, soon) });
-    }
+    if (record.checkin && !record.checkin.doneAt) await armFollowup(record.id);
     if (record.remindAt) chrome.alarms.create(`remind|${record.id}`, { when: Math.max(record.remindAt, soon) });
     if (record.dueAsk) chrome.alarms.create(`ask|${record.id}`, { when: soon });
   }
@@ -2725,6 +2910,7 @@ async function resumeAll() {
   await forgetExcluded();
   await sendWaitingTranscripts();
   await keepHistoryAlarm();
+  await keepOutcomesAlarm();
   kickHistory();
 }
 
@@ -2745,6 +2931,12 @@ chrome.runtime.onInstalled.addListener(async (details) => {
   // address typed on the settings page (a test server, say) stays
   if (details.reason === "update" && (STUDY_CONFIG.retiredServerUrls || []).includes(settings.serverUrl)) {
     settings.serverUrl = DEFAULT_SETTINGS.serverUrl;
+  }
+  // NOTE: [edge case callout] 0.6.9 begins the follow-up a week after the request (the check-in came after
+  // two weeks before): an install updated from an earlier version that still has the old default saved moves
+  // to the new one, while a time typed on the settings page (a test) stays. Check-ins made before keep their day.
+  if (details.reason === "update" && /^0\.([0-5]\.|6\.[0-8]$)/.test(details.previousVersion || "") && settings.followupSeconds === 14 * 24 * 3600) {
+    settings.followupSeconds = DEFAULT_SETTINGS.followupSeconds;
   }
   // NOTE: [design thought] the update to 0.5 keeps the promises earlier versions made:
   // - "Hold my answers on this computer" is gone, but what it held is not sent without asking: it
@@ -2815,7 +3007,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
   if (differs("readPast") || differs("readApps")) {
     const stopped = [["readPast", "past"], ["readApps", "app"]].filter(([field]) => before[field] && !after[field]).map(([, kind]) => kind);
     historySwitched(stopped).then(() => consentChanged(before, after, after)).then(statusChanged).then(keepHistoryAlarm)
-      .then(() => checkJoined(after)).then(() => fetchStudyConfig(after));
+      .then(() => checkJoined(after)).then(() => checkPastAnnotated(after)).then(() => fetchStudyConfig(after));
   }
   if (trackingOff({ ...DEFAULT_SETTINGS, ...before }) && !trackingOff({ ...DEFAULT_SETTINGS, ...after })) {
     sendWaitingTranscripts().then(flushQueue);         // the conversations that waited, also in the queue

@@ -19,6 +19,13 @@ STUDY_CONFIG.pastReward = "$2";
 // A participant who leaves tracking paused gets a Chrome notification after this many days, and again
 // after as many more while it stays paused (clicking "Resume tracking" on it resumes).
 STUDY_CONFIG.pausedReminderDays = 5;
+// The study period (consent form: the study lasts five weeks, three of tracking and two for the last
+// follow-ups), from when the participant joined: a decision they plan to act on within it is asked about
+// again then, one after it goes to its outcome questions at once, and on its last day every follow-up
+// goes to them (lib/modes.js followupStage). A reminder to look at the outcomes page comes every
+// outcomesReminderDays while a follow-up question waits.
+STUDY_CONFIG.studyDays = 35;
+STUDY_CONFIG.outcomesReminderDays = 2;
 // The sites whose conversation list can be read (a reader in lib/history/<site>.js); the version of
 // the consent text on the settings page (uploaded with each consent). A participant's past ends when
 // they first installed the extension (the study server's first event of their ID, if earlier).

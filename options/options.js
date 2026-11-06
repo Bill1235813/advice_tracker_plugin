@@ -1,5 +1,5 @@
 const FIELDS = ["participantId", "serverUrl", "studyKey", "endQuietMinutes"];
-const DEFAULTS = { followupSeconds: 14 * 24 * 3600, endQuietMinutes: 24 * 60, ratingMode: STUDY_CONFIG.ratingMode || "combined" };
+const DEFAULTS = { followupSeconds: 7 * 24 * 3600, endQuietMinutes: 24 * 60, ratingMode: STUDY_CONFIG.ratingMode || "combined" };
 
 async function load() {
   const { settings = {} } = await chrome.storage.local.get("settings");

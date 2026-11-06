@@ -8,7 +8,9 @@
 // pop-up offers that update ("Update your ratings?") and disappears by itself; a third one, with
 // no conversation text, asks about an episode from another chat site and answers in a tab; a
 // fourth one (combined mode) asks only step 1, quoting the request, right after the first advice
-// turn, and also disappears by itself (after Yes, the ratings page later starts at step 2).
+// turn, and also disappears by itself (after Yes, the ratings page later starts at step 2). A fifth
+// one (0.6.9) is the follow-up about a conversation from a week or more ago: did you decide, did you
+// act (offerFollowup).
 // An open page stays current: the background sends it the episode's newer state (more turns, the
 // complete reply, or a new request when the episode ended), and everything typed into it stays.
 // All are rendered inside shadow roots, so the host page's CSS cannot restyle them and vice versa.
@@ -64,6 +66,14 @@
       box-shadow: 0 8px 28px rgba(0,0,0,.18); font: 14px/1.4 system-ui, sans-serif; z-index: 2147483647; }
     .offer .actions { margin-top: 10px; }
     .offer .left { font-size: 11.5px; color: #647084; margin-top: 6px; }
+    .followup .bar { display: flex; gap: 8px; align-items: baseline; }
+    .followup .bar .state { flex: 1; font-size: 11.5px; color: #647084; }
+    .followup .bar button { border: none; background: none; cursor: pointer; font: inherit; font-size: 12.5px; color: #4f5bd5; padding: 0; }
+    .followup .body { margin-top: 6px; }
+    .followup.minimized { width: auto; max-width: 330px; padding: 6px 12px; }
+    .followup.minimized .body { display: none; }
+    .followup select { margin-top: 6px; }
+    .followup a { color: #4f5bd5; }
   `;
   const waiting = [];            // pages asked for while another one was open
   // NOTE: [edge case callout] the extension was updated or reloaded while a page or pop-up was open:
@@ -72,7 +82,7 @@
   // under the extension icon (a confirm question also comes back with the ratings page, an update
   // offer when the conversation goes on).
   const UPDATED = "Advice Tracker was updated meanwhile, so this could not be sent. Please reload this page. " +
-                  "Questions that still wait for an answer are listed under the Advice Tracker icon → <b>Open questions &amp; check-ins</b>.";
+                  "Questions that still wait for an answer are listed under the Advice Tracker icon → <b>Quick check-ins</b> and <b>Outcomes</b>.";
 
   function styled(host) {
     const shadow = host.attachShadow({ mode: "open" });
@@ -156,6 +166,7 @@
   }
 
   function render(episode, settings) {
+    document.getElementById("advice-tracker-followup")?.remove();          // (a page replaces the follow-up pop-up)
     const host = document.createElement("div");
     host.id = "advice-tracker-host";
     host.dataset.episode = episode.id;
@@ -184,7 +195,7 @@
             ${Questions.render(questions)}
             <div class="actions"><button class="primary" id="submit">${answered ? "Save" : "Submit"}</button></div>
           </div>
-          <div class="note">${answered ? "Your earlier answers are filled in." : `About 5 to 10 minutes now, and a short check-in about ${Questions.duration(settings.followupSeconds)} after you first asked.`}
+          <div class="note">${answered ? "Your earlier answers are filled in." : `About 5 to 10 minutes now, and a few follow-up questions from about ${Questions.duration(settings.followupSeconds)} after you first asked.`}
             ${Questions.escape(Questions.CONVERSATION_NOTES[episode.text] || Questions.CONVERSATION_NOTES.with_answers)}</div>
         </div>
       </div>`;
@@ -269,6 +280,9 @@
   // (`labels`: other words on the two buttons, and what each answer is called in the reply)
   function popup(episode, settings, html, asked, reply, onYes, labels = { no: "No", yes: "Yes", answers: { no: "no", yes: "yes" } }) {
     if (document.getElementById("advice-tracker-host") || document.getElementById("advice-tracker-offer")) return false;
+    // NOTE: [design thought] a question about a conversation going on now comes first: the follow-up
+    // pop-up (about one from days ago) goes, and is asked again another day
+    document.getElementById("advice-tracker-followup")?.remove();
     const host = document.createElement("div");
     host.id = "advice-tracker-offer";
     host.dataset.episode = episode.id;
@@ -383,5 +397,112 @@
                  { no: "Not now", yes: "Open", answers: { no: "later", yes: "open" } });
   }
 
-  root.RatingPanel = { show, refresh, close, closeOffer, offerUpdate, offerTab, offerConfirm, offerInvite };
+  // The follow-up (0.6.9) about one advice conversation from a week or more ago, one question at a time:
+  // "Did you make a decision yet?", then "Did you act on this decision yet?", and if not yet, when they plan
+  // to; once the outcome questions are ready, it offers the outcomes page. The background decides what
+  // follows each answer (it answers the message with the follow-up's stage after it). The conversation is
+  // named by its site and date, and by the participant's own one-sentence summary only on that site's own
+  // page (item.summary is empty elsewhere). Nobody is pressed: "Not yet" minimizes it (asked again the next
+  // day), and so does leaving it alone for settings.updateSeconds while it is on the screen. Minimized, it
+  // is a small bar that opens again on a click, or goes with ✕. Returns false when something is already open.
+  function offerFollowup(item, settings) {
+    if (["advice-tracker-host", "advice-tracker-offer", "advice-tracker-followup"].some((id) => document.getElementById(id))) return false;
+    const host = document.createElement("div");
+    host.id = "advice-tracker-followup";
+    host.dataset.episode = item.id;
+    const shadow = styled(host);
+    const escape = Questions.escape;
+    const date = escape(new Date(item.openedAt).toLocaleDateString());
+    const about = `About your advice conversation on ${escape(item.site)} from ${date}` +
+                  (item.summary ? `:<div class="quote">${escape(shortened(item.summary))}</div>` : ".");
+    const more = item.more ? `<div class="left">${item.more} more on your <a href="#" id="outcomes">Outcomes page</a>.</div>` : "";
+    shadow.innerHTML = `
+      <div class="offer followup">
+        <div class="bar"><b>Advice Tracker</b><span class="state" id="state">(research study)</span>
+          <button id="toggle">minimize</button><button id="close" title="Close: asked again another day">✕</button></div>
+        <div class="body"><div>${about}</div><div id="step"></div>${more}<div class="left" id="left"></div></div></div>`;
+    document.body.appendChild(host);
+    for (const type of ["keydown", "keyup", "keypress", "input", "paste", "cut", "copy", "beforeinput"]) {
+      host.addEventListener(type, (event) => event.stopPropagation());      // (as on the ratings page)
+    }
+    const byId = (id) => shadow.getElementById(id);
+    const box = shadow.querySelector(".followup");
+    let left = settings.updateSeconds, seen = false, touched = false;
+    const minimize = (state) => {
+      clearInterval(timer);
+      box.classList.add("minimized");
+      byId("state").textContent = state;
+      byId("toggle").textContent = "open";
+    };
+    byId("toggle").onclick = () => {
+      if (!box.classList.contains("minimized")) return minimize("a question about a decision");
+      box.classList.remove("minimized");
+      byId("state").textContent = "(research study)";
+      byId("toggle").textContent = "minimize";
+    };
+    byId("close").onclick = () => { clearInterval(timer); host.remove(); };
+    const outcomes = byId("outcomes");
+    if (outcomes) outcomes.onclick = (event) => { event.preventDefault(); send({ type: "open_outcomes" }); };
+    // it is seen once the page is visible; the countdown then runs while the page is visible and nothing
+    // was clicked, and minimizes it (it does not close)
+    const markSeen = () => {
+      if (seen || document.hidden) return;
+      seen = true;
+      send({ type: "followup_seen", id: item.id });
+    };
+    const timer = setInterval(() => {
+      if (document.hidden || touched) return;
+      markSeen();
+      left -= 1;
+      byId("left").textContent = `Minimizes by itself in ${left} s.`;
+      if (left <= 0) minimize("a question about a decision");
+    }, 1000);
+    markSeen();
+    const buttons = (pairs) => `<div class="actions">${pairs.map(([value, label]) =>
+      `<button data-answer="${value}"${["yes", "open", "ok"].includes(value) ? ' class="primary"' : ""}>${label}</button>`).join("")}</div>`;
+    const showStep = (name) => {
+      const step = byId("step");
+      if (name === "when") {
+        step.innerHTML = `<b>${escape(Questions.FOLLOWUP.when)}</b><select id="when">${Questions.ACT_WHEN.map(([value, label]) =>
+          `<option value="${value}">${escape(label)}</option>`).join("")}</select>${buttons([["ok", "OK"]])}`;
+      } else if (name === "outcome") {
+        step.innerHTML = `<b>A few questions about how it turned out are ready</b> (about 5 minutes).${buttons([["later", "Later"], ["open", "Open the Outcomes page"]])}`;
+      } else {
+        step.innerHTML = `<b>${escape(Questions.FOLLOWUP[name])}</b>${buttons([["no", "Not yet"], ["yes", "Yes"]])}`;
+      }
+      for (const button of step.querySelectorAll("button")) button.onclick = () => clicked(name, button.dataset.answer);
+    };
+    const finish = (text, state) => {
+      byId("step").innerHTML = `<p class="done">${text}</p>`;
+      setTimeout(() => (state ? minimize(state) : host.remove()), 2500);
+    };
+    const clicked = async (name, value) => {
+      touched = true;
+      byId("left").textContent = "";
+      if (name === "outcome") {
+        if (value === "open") { send({ type: "open_outcomes", id: item.id }); host.remove(); }
+        else minimize("later: it waits on your Outcomes page");
+        return;
+      }
+      if (!chrome.runtime?.id) { byId("step").innerHTML = `<p class="done">${UPDATED}</p>`; return; }
+      const answer = name === "when" ? byId("when").value : value;
+      let reply = null;
+      try {
+        reply = await chrome.runtime.sendMessage({ type: "followup_answer", id: item.id, step: name, answer, where: "popup" });
+      } catch (error) { /* cut off from the extension: below */ }
+      if (!reply) { byId("step").innerHTML = `<p class="done">${UPDATED}</p>`; return; }
+      // "Not yet" to "did you act?": the follow-up stays there, and the pop-up asks when
+      if (name === "acted" && answer === "no" && reply.stage === "acted") return showStep("when");
+      if (["decided", "acted", "outcome"].includes(reply.stage)) return showStep(reply.stage);
+      if (reply.stage === "waiting") {
+        return finish(name === "decided" ? "Thank you. We will ask again tomorrow."
+                                         : `Thank you. We will ask again around ${escape(new Date(reply.nextAt).toLocaleDateString())}.`, "asks again later");
+      }
+      finish("Already answered elsewhere: nothing more to do here.", null);
+    };
+    showStep(item.stage);
+    return true;
+  }
+
+  root.RatingPanel = { show, refresh, close, closeOffer, offerUpdate, offerTab, offerConfirm, offerInvite, offerFollowup };
 })(self);

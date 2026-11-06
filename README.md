@@ -4,8 +4,8 @@ A Chrome extension used in a university research study on how people ask AI chat
 (ChatGPT, Claude, Gemini, Grok, Perplexity) for advice about their own lives, and what happens
 afterwards. When part of a conversation looks like you asked the AI for advice about your own
 situation, the extension asks whether you really asked for advice, and then a few questions about
-the advice (about 5 to 10 minutes; when it asks is explained below). Two weeks later it asks how
-things went. Your answers stay on your computer until you press **Submit**; they are then sent
+the advice (about 5 to 10 minutes; when it asks is explained below). From a week later it asks
+whether you made a decision and acted on it, and then how things went. Your answers stay on your computer until you press **Submit**; they are then sent
 together with that advice conversation (your messages and the AI's replies, from your message that
 asked for advice on), after names, e-mail addresses, phone numbers and similar details were removed
 on your computer.
@@ -15,7 +15,39 @@ version (one-click install) is in preparation; until then, follow the steps belo
 
 **How it works, in detail:** [`docs/advice-tracker-design.pdf`](docs/advice-tracker-design.pdf).
 
-## What's new in version 0.6.8 (v0.6 branch)
+## What's new in version 0.6.9 (v0.6 branch)
+
+- **A follow-up instead of the two-week check-in.** From a week after you asked the AI for advice
+  (when that conversation is over at the latest), a small pop-up on a chat site's page asks about it:
+  **"Did you make a decision yet?"** Not yet: it minimizes, and asks again the next day. Yes: **"Did
+  you act on this decision yet?"** If you did, a few questions about how it turned out follow (on
+  the Outcomes page). If not yet, it asks when you plan to: within the study period (five weeks from
+  when you joined), it asks again then; later than that, or if you are not sure, the questions about
+  how things stand come now. On the study period's last day they come for every conversation still
+  open. The pop-up names the conversation by its site and date, and by your own one-sentence
+  description of it only on that site's own page. Leave it alone and it minimizes by itself.
+- **Two pages instead of one.** *Quick check-ins* (extension icon → Quick check-ins): the questions
+  about the conversations you are having now, what counts as personal advice, and free support
+  resources. The new *Outcomes* page (extension icon → Outcomes): every advice conversation whose
+  follow-up is not finished, oldest first, each at its question (the same as the pop-up's) or with
+  its outcome questions; everything about past conversations (their questions, and how reading
+  them goes); and free support resources. While a follow-up question waits, a Chrome notification
+  reminds you of the Outcomes page every two days (not if you opened it meanwhile).
+- "Did the advice you followed make you feel better?" is now the statement **"Following the advice
+  made me feel better."**, answered on the same agree/disagree scale.
+- **Up to 30 past conversations per participant, not per install.** The study server tells the
+  extension which past conversations your participant ID annotated, on any computer or earlier
+  install; they count toward the 30. (Past conversations are looked for once the server answered.)
+- **ChatGPT, past and other-device conversations:** the reply to a prompt ChatGPT sent for you (a
+  scheduled task, a button) is no longer read as part of the reply before it, as on Grok since 0.6.8.
+- An upload the study server refuses for itself (for example, one too large) is tried again twice,
+  30 minutes apart, and then dropped (the heartbeat counts it); any other failure is tried until it
+  goes.
+- For testing: the settings page's follow-up time is now when the follow-up begins (604800 s = 7
+  days, the study's setting). An install updated from an earlier version with the old default (14
+  days) moves to 7; a time you typed stays. A check-in made before 0.6.9 keeps its day.
+
+## What's new in version 0.6.8
 
 - **Answers that no longer apply are cleared.** Ticking "It is too early to tell" clears and locks
   "So far, how has the situation turned out?" (both were sent before); "Did the advice you followed
@@ -261,11 +293,13 @@ extension loaded this way.
 
 **Where things go when you click "later"**: the panel comes back after an hour if the chat tab is
 still open, otherwise a Chrome notification reminds you. At any time, click the extension icon →
-**Open questions & check-ins** to answer everything that is waiting; a number on the icon shows
-how many things are waiting.
+**Quick check-ins** to answer everything that is waiting; a number on the icon shows how many
+things are waiting.
 
-The two-week follow-up arrives as a Chrome notification. To see those questions now, use the same
-button.
+From a week after an advice conversation, a small pop-up on a chat site's page asks whether you made
+a decision about it. Everything about these follow-ups, and about past conversations, is also on the
+**Outcomes** page (extension icon → Outcomes); a Chrome notification reminds you of it every two
+days while a question waits.
 
 ## What it collects, and your controls
 
@@ -300,7 +334,7 @@ button.
 - **Attachments are recorded by name only**: an uploaded picture appears as `[image]` and a file as
   `[file: its name]`; the extension never reads what is inside them.
 - On your computer, a conversation's text is kept only while it is being checked; for an advice
-  conversation you answer questions about, until you submit its two-week check-in. Conversations
+  conversation you answer questions about, until you answer its outcome questions. Conversations
   that are not advice, or that you mark as not advice, are deleted, and their text is never sent.
 - Your answers are sent when you press Submit, together with the advice conversation they are
   about (your messages and the AI's replies, from your message that asked for advice on; earlier
@@ -361,7 +395,7 @@ e-mail.
 
 ## For reviewers and developers
 
-- `manifest.json` (Manifest V3, version 0.6.8): permissions `storage`, `unlimitedStorage` (no
+- `manifest.json` (Manifest V3, version 0.6.9): permissions `storage`, `unlimitedStorage` (no
   install warning), `alarms`, `notifications`, and host permissions for the five chat sites (plus
   `localhost` for the mock test page); no remote code.
 - Past and other-device conversations (0.6, opt-in): `content/history.js` answers the worker's
@@ -370,15 +404,18 @@ e-mail.
   it (web, past, app, off) and drops the text of turns that may not be read before it leaves the
   page; `background.js` walks each conversation with the same judges, hands open episodes between
   the web page and the walk, and asks through one queue per site (`lib/modes.js` `viaQueue`,
-  `queueItem`): a text-free invitation on the site's page, the questions in `ui/checkin.html?item=`.
+  `queueItem`): a text-free invitation on the site's page, the questions in `ui/checkin.html?item=` (a
+  past one in `ui/outcomes.html?item=`, 0.6.9).
 - `content/capture.js` reads the conversation from the page (per site, `lib/sites.js` names the
   message elements, the parts that hold their text, and the noise inside them: thinking blocks,
   screen-reader labels, buttons) and notes which user messages were sent there; `background.js`
   judges each new message through the study server, one at a time,
   following the state machine in `lib/episodes.js`, and shows `content/rating_panel.js` (or its small
   update and confirm pop-ups) when the rating mode in `lib/modes.js` says so; `lib/redact.js` removes
-  personal details from everything sent; `ui/checkin.html` holds pending questions and the two-week
-  check-in; `lib/questions.js` has every question (all required); `config.js` holds the server URL
+  personal details from everything sent; `ui/checkin.html` holds pending questions (the quick
+  check-ins) and `ui/outcomes.html` the follow-ups and past conversations (one script for both,
+  `ui/checkin.js`); `lib/modes.js` `followupStage` and `followupAnswer` are the follow-up's rules
+  (0.6.9); `lib/questions.js` has every question (all required); `config.js` holds the server URL
   and study key, and the servers used before (an update moves an install that still has one of
   them to the current server).
 - Uploads (`POST /events`): `episode_rating` (answers + the redacted transcript from the opening
@@ -394,7 +431,14 @@ e-mail.
   (answers + the redacted transcript of a past episode, with a `fingerprint` to pay each once),
   `past_skipped`, `consent` (`feature`, `accepted`, `version`) and the `prompt` kinds `invite` and
   `card`. 0.6.8: an answer to a question that does not apply is `null` (`outcome` when `too_early` is
-  ticked, `feel_better` unless `followed` is `fully` or `partly`). 0.6.2: a `prompt` can also end `withdrawn` (the pop-up or invitation was taken away because
+  ticked, `feel_better` unless `followed` is `fully` or `partly`). 0.6.9: `followup` (each answer to
+  the follow-up's questions: `step` decided, acted or when, `answer`, `where` popup or page, the
+  `stage` after it, `days_since_request`, `next_at`, `planned_at`, `shown`, `study_end`; no text),
+  `checkin.followup` (`ask_from`, `due_at`, `shown`, and the answers with their times: `decided`,
+  `decidedAt`, `acted`, `actedAt`, `actWhen`, `plannedAt`), the heartbeat's `followup_stages` and
+  counts `upload_rejected`, `upload_rejected_<type>`; the extension asks `GET /past?participant_id=`
+  (study server 0.6.1) for the fingerprints of the past conversations the participant ID annotated,
+  on any install. 0.6.2: a `prompt` can also end `withdrawn` (the pop-up or invitation was taken away because
   the participant answered the same question elsewhere), and `episode_transcript` carries
   `answer_versions` and `final_due`: when a change of topic or the cut closes an answered episode with
   nothing new since the answers, no final answers are asked (`final_due` false) and the last

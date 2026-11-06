@@ -9,7 +9,9 @@ async function refresh() {
   const kindOn = (e) => (e.source === "past" ? settings.readPast : e.source === "app" || e.heldBy === "history" ? settings.readApps : true);
   const askable = (e) => !Modes.viaQueue(e) || (Boolean(kindOn(e)) && !isExcluded(new URL(e.url).hostname, settings.excludedHosts || []));
   document.getElementById("n-pending").textContent = episodes.filter((e) => Modes.waiting(e) && askable(e)).length;
-  document.getElementById("n-due").textContent = episodes.filter((e) => Modes.checkinDue(e, now)).length;
+  // follow-up questions that wait (did you decide, did you act, the outcome questions: lib/modes.js followupStage)
+  const end = Modes.studyEnd(stored, STUDY_CONFIG.studyDays);
+  document.getElementById("n-due").textContent = episodes.filter((e) => Modes.followupAsks(Modes.followupStage(e, now, end))).length;
   document.getElementById("n-removed").textContent = stats.not_advice || 0;
   // past conversations found that can be annotated now (the follow-up time after the request), and the switch
   document.getElementById("n-past").textContent = episodes.filter((e) => askable(e) && Modes.queueDue(e, now, Modes.followupSeconds(settings))?.stage === "past").length;
@@ -41,6 +43,7 @@ async function refresh() {
 }
 
 document.getElementById("open-checkin").onclick = () => chrome.tabs.create({ url: chrome.runtime.getURL("ui/checkin.html") });
+document.getElementById("open-outcomes").onclick = () => chrome.tabs.create({ url: chrome.runtime.getURL("ui/outcomes.html") });
 document.getElementById("options").onclick = () => chrome.runtime.openOptionsPage();
 document.getElementById("pause").onclick = async () => {
   const { settings = {} } = await chrome.storage.local.get("settings");

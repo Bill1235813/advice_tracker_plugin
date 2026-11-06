@@ -1,17 +1,23 @@
-// Extension page with everything that waits for the participant: episodes not rated yet (a
-// snoozed panel, a notification, "open in a tab") and day-14 check-ins that are due. The
-// questions come from lib/questions.js, the same lists the rating panel uses. (The conversation
-// itself goes with the answers, redacted; the check-in asks how things went. Only an episode from
-// 0.4, whose conversation was to be sent after a review here, still shows it for review.)
+// The extension's two pages of questions (one script; the page's address says which):
+// - the quick check-ins (ui/checkin.html): episodes not rated yet (a snoozed panel, a notification, "open
+//   in a tab"), and conversations found on the site itself from other devices;
+// - the outcomes page (ui/outcomes.html, 0.6.9): every advice conversation whose follow-up is not done,
+//   oldest first, at its stage (lib/modes.js followupStage: did you decide, did you act, when, or the
+//   outcome questions), and everything about past conversations (their questions, how reading them goes).
+// The questions come from lib/questions.js, the same lists the rating panel uses. (The conversation
+// itself goes with the answers, redacted; the follow-up asks how things went. Only an episode from
+// 0.4, whose conversation was to be sent after a review at its check-in, still shows it for review.)
 //   ?rate=<id>      opened from a notification or the panel's "open in a tab"; also works for an
 //                   episode that is still going on, or that has answers to update (&stage=<stage>:
 //                   the question the panel asked, e.g. temp after a move to another site)
-//   ?checkin=<id>   opened from the day-14 notification; ?checkin=all also lists check-ins that
-//                   are not due yet (for testing and demos only; nothing links to it)
 //   ?item=<id>      opened from an invitation on a chat page (0.6): an episode found on the site
 //                   itself (a past conversation, one from another device, or one that continued there)
+//   ?episode=<id>   (outcomes page) opened from the follow-up pop-up: that conversation's card first in view;
+//                   ?checkin=all shows the outcome questions of every follow-up not done, whatever its stage
+//                   (for testing and demos only; nothing links to it)
 // Episodes asked about through their site's queue (lib/modes.js viaQueue) appear one per site: the
 // site's current question (queueItem), and the next one once that is answered.
+const OUTCOMES = location.pathname.endsWith("/outcomes.html");
 const STAGES = ["first", "temp", "update", "final", "end"];
 // (for the storage listener at the end: the episodes whose question was answered on this tab, and the
 // settings as this page last read them)
@@ -47,7 +53,8 @@ async function main() {
   const episodes = Object.entries(stored).filter(([name]) => name.startsWith("episode:")).map(([, episode]) => episode)
     .sort((a, b) => a.openedAt - b.openedAt);
   const list = document.getElementById("list");
-  const now = Date.now();
+  const pastList = document.getElementById("past-list");          // (the outcomes page's past conversations)
+  const now = Date.now(), end = Modes.studyEnd(stored, STUDY_CONFIG.studyDays);
   queueCounts = countQueued(episodes, settings);
   // one question per site from its queue: the one an invitation (or a notification) opened this tab
   // for, else the site's current one
@@ -62,26 +69,36 @@ async function main() {
   }
   for (const episode of episodes) {
     episode.text = conversationGoes(episode, settings);
+    // the outcomes page: every conversation whose follow-up is not done, at its stage
+    if (OUTCOMES && Modes.followupStage(episode, now, end)) list.appendChild(followupCard(episode, episodes, settings, stored, params.get("checkin") === "all"));
     if (Modes.viaQueue(episode)) {
       const askable = !["done", "removed"].includes(episode.status) && !(episode.source === "past" && episode.answers) && queueKindOn(episode, settings);
-      if (queued.has(episode.id) && askable) list.appendChild(itemCard(episode, settings, now));
-      if (Modes.checkinDue(episode, now)) list.appendChild(checkinCard(episode, episodes, settings, stored));
+      // (a past one on the outcomes page, one from another device on the quick check-ins page)
+      if (queued.has(episode.id) && askable && (episode.source === "past") === OUTCOMES) (OUTCOMES ? pastList : list).appendChild(itemCard(episode, settings, now));
       continue;
     }
-    // the check-in once it is due (with ?checkin=, also before: for testing and demos)
-    const checkinDue = Modes.checkinDue(episode, now) ||
-      (Modes.checkinDue(episode, Infinity) && ["all", episode.id].includes(params.get("checkin")));
+    if (OUTCOMES) continue;
     // waiting for answers (lib/modes.js: an ended episode never answered, final answers still
     // due, an open episode the participant was asked about), or the one this tab was opened for,
     // unless its answers are up to date (nothing new since: lib/modes.js stillDue)
     const requested = params.get("rate") === episode.id && ["open", "pending", "rated"].includes(episode.status) &&
                       Modes.stillDue(episode);
     if (Modes.waiting(episode) || requested) list.appendChild(ratingCard(episode, requested ? params.get("stage") : null, settings));
-    if (checkinDue) list.appendChild(checkinCard(episode, episodes, settings, stored));
   }
-  if (!list.children.length) list.innerHTML = '<p class="empty">Nothing is waiting for you right now. Episodes to rate and due check-ins appear here.</p>';
-  const focus = params.get("item") ? `item-${params.get("item")}` : params.get("rate") ? `rate-${params.get("rate")}` : `checkin-${params.get("checkin")}`;
-  document.getElementById(`card-${focus}`)?.scrollIntoView();
+  if (!list.children.length) {
+    list.innerHTML = OUTCOMES ? '<p class="empty">No follow-up is open right now. A week after you ask an AI assistant for advice, its follow-up appears here.</p>'
+                              : '<p class="empty">Nothing is waiting for you right now. Advice conversations to rate appear here.</p>';
+  }
+  if (pastList && !pastList.children.length) {
+    pastList.innerHTML = `<p class="empty">${settings.readPast ? "No past conversation is waiting to be annotated right now. When Advice Tracker finds one, it invites you on the site's page."
+      : 'Reading your past conversations is off. You can earn money for annotating some: turn it on in the <a href="../options/options.html#history">settings</a>.'}</p>`;
+  }
+  const focus = params.get("item") ? `item-${params.get("item")}` : params.get("rate") ? `rate-${params.get("rate")}` : null;
+  const card = focus ? document.getElementById(`card-${focus}`)
+    : document.getElementById(`card-followup-${params.get("episode")}`) || document.getElementById(`card-checkin-${params.get("episode")}`);
+  card?.scrollIntoView();
+  // (the reminder to look at this page waits while the participant had it open: background.js remindOutcomes)
+  if (OUTCOMES) await chrome.storage.local.set({ outcomesSeenAt: Date.now() });
 }
 
 // the episode's kind is turned on (an episode from elsewhere is asked about only while reading it is)
@@ -154,10 +171,7 @@ function ratingCard(episode, asked, settings) {
     answeredHere.add(episode.id);
     await chrome.runtime.sendMessage({ type: "rating_submitted", id: episode.id, rating: { ...answers, ratedAt: Date.now() },
                                        stage, start: episode.start, end: episode.end, basedOn: episode.versions });
-    // (the follow-up time is 14 days in the study; a tester can shorten it on the settings page)
-    const later = Modes.checkinDue(episode, Date.now()) ? " The check-in for this conversation is below."
-      : ` We will check back about ${Questions.duration(Modes.followupSeconds(settings))} after you first asked.`;
-    card.innerHTML = `<p class="done">Thank you.${later}</p>`;
+    card.innerHTML = `<p class="done">Thank you.${followupNote(episode, settings)}</p>`;
   };
   return card;
 }
@@ -190,7 +204,7 @@ function itemCard(episode, settings, now) {
     ${past ? `<p class="meta"><b>You can earn ${Questions.escape(STUDY_CONFIG.pastReward)} for annotating this past conversation</b>
       (up to ${STUDY_CONFIG.pastLimit} conversations; about 5-10 minutes). Answer No or Skip if it was not advice: that is fine, and never
       affects your participation. <a href="#" class="stop">Stop asking about past conversations</a></p>` : ""}
-    <div class="confirm" ${confirmed ? "hidden" : ""}><b>Did you ask the AI for advice about your own situation in this conversation?</b> <a class="whatis" href="#advice">what counts as advice?</a><br>
+    <div class="confirm" ${confirmed ? "hidden" : ""}><b>Did you ask the AI for advice about your own situation in this conversation?</b> <a class="whatis" href="${OUTCOMES ? "checkin.html" : ""}#advice"${OUTCOMES ? ' target="_blank"' : ""}>what counts as advice?</a><br>
       <button type="button" class="yes">Yes</button> <button type="button" class="secondary no">No</button>
       ${past ? '<button type="button" class="secondary skip">Skip this one</button>' : ""}</div>
     ${answered ? '<p class="meta">Your earlier answers are filled in; change any that are different now.</p>' : ""}
@@ -242,17 +256,91 @@ function itemCard(episode, settings, now) {
       answeredHere.add(episode.id);
       await chrome.runtime.sendMessage({ type: "rating_submitted", id: episode.id, rating: { ...answers, ratedAt: Date.now() },
                                          stage: decision.stage, start: episode.start, end: episode.end, basedOn: episode.versions });
-      done(Modes.checkinDue(episode, Date.now()) ? "Thank you."
-        : `Thank you. We will check back about ${Questions.duration(Modes.followupSeconds(settings))} after you first asked.`);
+      done(`Thank you.${followupNote(episode, settings)}`);
     }
   };
   return card;
+}
+
+// what comes after the ratings: the follow-up, the follow-up time after the first request (7 days in the
+// study; a tester can shorten it on the settings page), unless it began already
+function followupNote(episode, settings) {
+  if (episode.checkin) return " Its follow-up questions are on your Outcomes page.";
+  return ` From about ${Questions.duration(Modes.followupSeconds(settings))} after you first asked, we will ask whether you made a decision and how it went.`;
 }
 
 // the record's messages hold its turns start..end; the transcript starts at the opening
 function transcriptFrom(episode) {
   let turn = 0;
   return Math.max(0, (episode.messages || []).findIndex((message) => message.role === "user" && ++turn === episode.opening - episode.start + 1));
+}
+
+// What the participant asked about: their own one-sentence description of the decision, if they gave one;
+// else what they asked
+function recall(episode) {
+  return episode.answers?.decision ? `<p class="meta">In your words, you were asking about:</p>${quote(episode.answers.decision)}`
+                                   : `<p class="meta">You asked:</p>${quote(episode.openingText || "")}`;
+}
+
+// A conversation whose follow-up is not done (outcomes page), at its stage (lib/modes.js followupStage):
+// when it begins, the question it waits for (the same as the pop-up's on the chat page), when it is asked
+// again, or the outcome questions (checkinCard). `all`: the outcome questions whatever the stage (?checkin=all).
+// An answer goes to the background, which says what follows (lib/modes.js followupAnswer); the card is then
+// built again from the record.
+function followupCard(episode, episodes, settings, stored, all = false) {
+  const now = Date.now(), stage = all ? "outcome" : Modes.followupStage(episode, now, Modes.studyEnd(stored, STUDY_CONFIG.studyDays));
+  if (stage === "outcome") return checkinCard(episode, episodes, settings, stored);
+  const card = newCard(episode, "followup");
+  card.dataset.stage = stage;
+  const checkin = episode.checkin, decision = checkin.decision || {};
+  const day = (at) => Questions.escape(new Date(at).toLocaleDateString());
+  // (with two buttons, the first is the secondary one: "Not yet")
+  const buttons = (pairs) => pairs.map(([answer, label], index) =>
+    `<button type="button" class="${pairs.length > 1 && index === 0 ? "secondary" : ""}" data-answer="${answer}">${Questions.escape(label)}</button>`).join(" ");
+  let body;
+  if (stage === "later") {
+    body = `<p class="meta">We will ask how this went from ${day(checkin.askFrom)}${episode.status === "open" ? ", once the conversation has ended" : ""}.</p>`;
+  } else if (stage === "waiting" && decision.decided === "no") {
+    body = `<p class="meta">You had not decided yet on ${day(decision.at)}. We will ask again on ${day(checkin.nextAt)}.</p>${buttons([["decided:yes", "I have decided now"]])}`;
+  } else if (stage === "waiting") {
+    body = `<p class="meta">You plan to act on your decision by about ${day(checkin.nextAt)}. We will ask again then.</p>${buttons([["acted:yes", "I have acted on it now"]])}`;
+  } else if (stage === "decided") {
+    body = `<p><b>${Questions.escape(Questions.FOLLOWUP.decided)}</b></p>${buttons([["decided:no", "Not yet"], ["decided:yes", "Yes"]])}`;
+  } else if (decision.acted === "no") {
+    // "Not yet" to "did you act?": when they plan to
+    body = `<p><b>${Questions.escape(Questions.FOLLOWUP.acted)}</b> Not yet.</p><p><b>${Questions.escape(Questions.FOLLOWUP.when)}</b></p>
+      <select name="when">${Questions.ACT_WHEN.map(([value, label]) => `<option value="${value}">${Questions.escape(label)}</option>`).join("")}</select>
+      ${buttons([["when:", "OK"]])}`;
+  } else {
+    body = `<p><b>${Questions.escape(Questions.FOLLOWUP.acted)}</b></p>${buttons([["acted:no", "Not yet"], ["acted:yes", "Yes"]])}`;
+  }
+  card.innerHTML = `<h2>${Questions.escape(episode.site)} · ${new Date(episode.openedAt).toLocaleDateString()}</h2>${recall(episode)}${body}`;
+  for (const button of card.querySelectorAll("button[data-answer]")) {
+    button.onclick = async () => {
+      const [step, chosen] = button.dataset.answer.split(":");
+      const answer = step === "when" ? card.querySelector('select[name="when"]').value : chosen;
+      card.dataset.busy = "yes";                 // (the storage listener leaves it to this answer)
+      await chrome.runtime.sendMessage({ type: "followup_answer", id: episode.id, step, answer, where: "page" });
+      await rebuildFollowup(episode.id);
+    };
+  }
+  return card;
+}
+
+// The follow-up card of an episode built again from its record as stored now (after an answer here, or
+// one given in the pop-up meanwhile); a follow-up that is done or gone says so
+async function rebuildFollowup(id) {
+  const card = document.getElementById(`card-followup-${id}`);
+  if (!card) return;
+  const stored = await chrome.storage.local.get(null);
+  const episode = stored[`episode:${id}`];
+  if (!episode || !Modes.followupStage(episode, Date.now(), Modes.studyEnd(stored, STUDY_CONFIG.studyDays))) {
+    card.innerHTML = '<p class="done">This follow-up is no longer open.</p>';
+    return;
+  }
+  const episodes = Object.entries(stored).filter(([name]) => name.startsWith("episode:")).map(([, record]) => record);
+  episode.text = conversationGoes(episode, stored.settings || {});
+  card.replaceWith(followupCard(episode, episodes, stored.settings || {}, stored));
 }
 
 function checkinCard(episode, episodes, settings, stored) {
@@ -265,11 +353,8 @@ function checkinCard(episode, episodes, settings, stored) {
   const messages = episode.text === "at_checkin" ? reviewMessages(episode, stored) : [];
   const review = messages.length ? Questions.transcript(messages, settings.redactNames || []) : null;
   const removed = review ? Object.entries(review.counts).map(([kind, count]) => `${count} ${kind}`).join(", ") || "nothing found" : "";
-  // the participant's own description of the decision, if they gave one; else what they asked
-  const recall = episode.answers?.decision ? `<p class="meta">In your words, you were asking about:</p>${quote(episode.answers.decision)}`
-                                         : `<p class="meta">You asked:</p>${quote(episode.openingText || "")}`;
   card.innerHTML = `<h2>${Questions.escape(episode.site)} · ${new Date(episode.openedAt).toLocaleDateString()}</h2>
-    <p>${ago} you asked an AI assistant for advice. What happened since?</p>${recall}
+    <p>${ago} you asked an AI assistant for advice. What happened since?</p>${recall(episode)}
     ${later ? `<p class="meta">Since then you had ${later} more conversation(s) that looked related to this one.</p>` : ""}
     ${Questions.render(Questions.CHECKIN)}
     ${review ? `<div class="item"><span class="q">Your conversation, as we will store it</span>
@@ -291,8 +376,10 @@ function checkinCard(episode, episodes, settings, stored) {
 }
 
 main();
-renderReading();
-setInterval(renderReading, 60000);           // (a pause the site asked for runs out; a tab was opened)
+if (OUTCOMES) {
+  renderReading();
+  setInterval(renderReading, 60000);         // (a pause the site asked for runs out; a tab was opened)
+}
 
 // ---- how reading the sites goes (0.6 opt-in): one line per site, in plain words ----
 // The background keeps each site's reading state in storage (hstate:<host>: a pause the site asked for,
@@ -346,12 +433,13 @@ async function readingStatus(stored) {
   return { lines, note: lines.length ? null : `Open ${names.slice(0, -1).join(", ")} or ${names.at(-1)} to start.` };
 }
 
+// (also the "1/N awaiting labeling" lines of the queue cards, on both pages; the reading box is on the outcomes page)
 async function renderReading() {
-  const box = document.getElementById("reading");
-  if (!box) return;
   const stored = await chrome.storage.local.get(null);
   queueCounts = countQueued(Object.entries(stored).filter(([name]) => name.startsWith("episode:")).map(([, episode]) => episode), stored.settings || {});
   for (const line of document.querySelectorAll(".queue-count")) line.textContent = queueLine({ site: line.dataset.site, source: line.dataset.source });
+  const box = document.getElementById("reading");
+  if (!box) return;
   const { lines, note } = await readingStatus(stored);
   box.hidden = false;
   box.innerHTML = `<h2>Past conversations status</h2>` +
@@ -378,6 +466,10 @@ chrome.storage.onChanged.addListener((changes, area) => {
       checkin.innerHTML = `<p class="done">${episode?.checkin?.doneAt ? "This check-in was already answered elsewhere: nothing more to do here."
                                                                         : "This check-in is no longer open."}</p>`;
     }
+    // a follow-up answered elsewhere (the pop-up on a chat page): its card moves to the stage it is at now
+    const followup = document.getElementById(`card-followup-${id}`);
+    if (followup && !followup.dataset.busy && (!episode || episode.checkin?.decision?.at !== change.oldValue?.checkin?.decision?.at ||
+                                               episode.checkin?.dueAt !== change.oldValue?.checkin?.dueAt)) rebuildFollowup(id);
     if (answeredHere.has(id)) continue;
     for (const kind of ["rate", "item"]) {
       const card = document.getElementById(`card-${kind}-${id}`);
