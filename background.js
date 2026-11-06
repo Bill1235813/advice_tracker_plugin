@@ -943,15 +943,20 @@ async function onPanelShown(message, sender) {
   const record = await updateEpisode(message.id, (current) => ({ ...current, askedEnd: Math.max(current.askedEnd ?? 0, pageEnd(current, message)),
                                                                  panelTabs: [...new Set([...(current.panelTabs || []), sender.tab.id])] }));
   // (a queued question shown in the extension's tab is its site's current one until it is answered; but the two
-  // pages each show their own kind, 0.6.9: while a question of the other kind is due on the site, the chat page
-  // keeps asking in its own order, other devices first)
+  // pages each show their own kind, 0.6.9, and the chat page asks other devices first: a past card does not take
+  // the site's question while one from another device is due there, and an other-device card does not take it
+  // from a past question the site is asking now)
   if (record && Modes.viaQueue(record)) {
     const settings = await getSettings(), now = Date.now();
-    const otherDue = (await loadAll("episode:")).some(([, other]) => other.site === record.site && (other.source === "past") !== (record.source === "past") &&
-      kindOn(settings, other) && !excluded(settings, other.url) && Modes.queueDue(other, now, settings.followupSeconds));
-    if (!otherDue) {
-      await serialized(`qstate:${record.site}`, async () => save(`qstate:${record.site}`, { ...((await load(`qstate:${record.site}`)) || {}), current: record.id }));
-    }
+    const due = (other) => kindOn(settings, other) && !excluded(settings, other.url) && Modes.queueDue(other, now, settings.followupSeconds);
+    const appDue = record.source === "past" &&
+      (await loadAll("episode:")).some(([, other]) => other.site === record.site && other.source !== "past" && Modes.viaQueue(other) && due(other));
+    await serialized(`qstate:${record.site}`, async () => {
+      const queue = (await load(`qstate:${record.site}`)) || {};
+      const held = record.source !== "past" && queue.current && queue.current !== record.id ? await load(`episode:${queue.current}`) : null;
+      if (appDue || (held?.source === "past" && due(held))) return;
+      await save(`qstate:${record.site}`, { ...queue, current: record.id });
+    });
   }
   await updateBadge();
 }
@@ -3053,8 +3058,14 @@ chrome.storage.onChanged.addListener((changes, area) => {
     (after.participantId ? noteJoined() : Promise.resolve()).then(statusChanged).then(keepPausedReminder);
   }
   if (differs("excludedHosts")) forgetExcluded();
-  // (the past conversations annotated under the earlier ID do not count for the new one: asked again)
-  if (differs("participantId")) remove("pastAnnotated").then(() => checkPastAnnotated(after));
+  // NOTE: [edge case callout] what the study server said about the earlier participant ID (the past conversations
+  // it annotated; when it first reported, which ends the past) does not hold for a new one (a typo corrected):
+  // asked again, and past turns wait meanwhile. (Not at the first setup: nothing was asked without an ID.)
+  if (differs("participantId")) {
+    const corrected = Boolean(before.participantId && after.participantId);
+    (corrected ? load("joinedAt").then(async (joinedAt) => { if (joinedAt) await save("pastBefore", joinedAt); await remove("joinedChecked"); }) : Promise.resolve())
+      .then(() => remove("pastAnnotated")).then(() => checkJoined(after)).then(() => checkPastAnnotated(after));
+  }
   // reading past conversations, or those from other devices, turned on or off: recorded (with the
   // version of the text agreed to), and the walks start again (opting out stops it, and its unanswered
   // episodes go)
