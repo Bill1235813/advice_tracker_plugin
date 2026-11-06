@@ -27,14 +27,19 @@ Fixes to 0.6.9's follow-up, found in two rounds of review:
   question too).
 - A check-in from before 0.6.9 shows its date on the Outcomes page (it said "Invalid Date").
 - Each page shows its own waiting conversation per site: past ones on the Outcomes page, those from
-  other devices on the quick check-ins page; opening one page does not change the question the chat
-  page asks about the other kind; "1/N awaiting labeling" counts only those that wait for an answer.
+  other devices on the quick check-ins page; while a question of the other kind waits on a site, a
+  page's card does not change the order the chat page asks in (other devices first); "1/N awaiting
+  labeling" counts only those that wait for an answer.
 - The Outcomes reminder does not come when you opened the page in the last two days (a reminder you
   clicked included); it does when the visit was longer ago, also after Chrome was closed for days.
 - Past conversations: one you annotated on an earlier install or another computer is not asked about
   again (also one already found here: the list is asked for every hour while past conversations are
   read); past turns wait until the study server said which ones your participant ID annotated (also in
-  conversations read for other devices), and are then judged; changing the participant ID asks again.
+  conversations read for other devices), and until it said when you joined; changing the participant ID
+  asks again.
+- Data note: every follow-up answer is uploaded as given, so a "not yet" answered again later (on
+  another day, or on a page opened later) is a second `followup` event; only the same answer within a
+  minute (a double click, two tabs) counts once.
 - ChatGPT: the reply to a prompt ChatGPT sent for you is not read also when your message before it got
   only a picture as its answer.
 - Your one-sentence description of a conversation stays off the pages of other chat sites, also when the

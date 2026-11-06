@@ -28,10 +28,13 @@ let queueCounts = {};
 
 // (each page counts its own kind: past conversations on the outcomes page, those from elsewhere on the quick one;
 // only the questions due now, lib/modes.js queueDue, as the queue asks them: not one answered with nothing new since)
-function countQueued(episodes, settings) {
+// `onScreen`: ids of the queue cards on this page, which count while they are there (an update's card is no
+// longer due once it was shown, yet it still waits for its answer here)
+function countQueued(episodes, settings, onScreen = new Set()) {
   const counts = {}, now = Date.now();
   for (const episode of episodes) {
-    if (!Modes.queueDue(episode, now, Modes.followupSeconds(settings)) || !queueKindOn(episode, settings) || (episode.source === "past") !== OUTCOMES) continue;
+    const due = onScreen.has(episode.id) || Modes.queueDue(episode, now, Modes.followupSeconds(settings));
+    if (!due || !queueKindOn(episode, settings) || (episode.source === "past") !== OUTCOMES) continue;
     counts[episode.site] = (counts[episode.site] || 0) + 1;
   }
   return counts;
@@ -448,7 +451,8 @@ async function readingStatus(stored) {
 // (also the "1/N awaiting labeling" lines of the queue cards, on both pages; the reading box is on the outcomes page)
 async function renderReading() {
   const stored = await chrome.storage.local.get(null);
-  queueCounts = countQueued(Object.entries(stored).filter(([name]) => name.startsWith("episode:")).map(([, episode]) => episode), stored.settings || {});
+  const onScreen = new Set([...document.querySelectorAll(".card.has-queue")].filter((card) => !card.dataset.settled).map((card) => card.id.replace(/^card-item-/, "")));
+  queueCounts = countQueued(Object.entries(stored).filter(([name]) => name.startsWith("episode:")).map(([, episode]) => episode), stored.settings || {}, onScreen);
   for (const line of document.querySelectorAll(".queue-count")) line.textContent = queueLine({ site: line.dataset.site, source: line.dataset.source });
   const box = document.getElementById("reading");
   if (!box) return;

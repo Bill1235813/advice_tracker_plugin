@@ -943,15 +943,15 @@ async function onPanelShown(message, sender) {
   const record = await updateEpisode(message.id, (current) => ({ ...current, askedEnd: Math.max(current.askedEnd ?? 0, pageEnd(current, message)),
                                                                  panelTabs: [...new Set([...(current.panelTabs || []), sender.tab.id])] }));
   // (a queued question shown in the extension's tab is its site's current one until it is answered; but the two
-  // pages each show their own kind, 0.6.9: a question of the other kind that the site still asks keeps its place)
+  // pages each show their own kind, 0.6.9: while a question of the other kind is due on the site, the chat page
+  // keeps asking in its own order, other devices first)
   if (record && Modes.viaQueue(record)) {
-    const settings = await getSettings();
-    await serialized(`qstate:${record.site}`, async () => {
-      const queue = (await load(`qstate:${record.site}`)) || {};
-      const held = queue.current && queue.current !== record.id ? await load(`episode:${queue.current}`) : null;
-      if (held && (held.source === "past") !== (record.source === "past") && Modes.queueDue(held, Date.now(), settings.followupSeconds)) return;
-      await save(`qstate:${record.site}`, { ...queue, current: record.id });
-    });
+    const settings = await getSettings(), now = Date.now();
+    const otherDue = (await loadAll("episode:")).some(([, other]) => other.site === record.site && (other.source === "past") !== (record.source === "past") &&
+      kindOn(settings, other) && !excluded(settings, other.url) && Modes.queueDue(other, now, settings.followupSeconds));
+    if (!otherDue) {
+      await serialized(`qstate:${record.site}`, async () => save(`qstate:${record.site}`, { ...((await load(`qstate:${record.site}`)) || {}), current: record.id }));
+    }
   }
   await updateBadge();
 }
@@ -1448,8 +1448,12 @@ async function historyTick() {
   if (!historyOn(settings) || trackingOff(settings) || !(await load("joinedAt"))) return;
   // the past conversations this participant ID annotated on any install (checkPastAnnotated): asked again every
   // hour while past conversations are read, and every few minutes until the study server answered once
-  const pastWait = (await load("pastAnnotated")) === undefined ? PAST_ASK_RETRY_MINUTES * 60000 : 3600 * 1000;
-  if (settings.readPast && Date.now() >= ((await load("pastAskedAt")) ?? 0) + pastWait) await checkPastAnnotated(settings);
+  // (when the participant joined is asked with it until the server answered: past turns wait for both)
+  const pastWait = (await load("pastAnnotated")) === undefined || !(await load("joinedChecked")) ? PAST_ASK_RETRY_MINUTES * 60000 : 3600 * 1000;
+  if (settings.readPast && Date.now() >= ((await load("pastAskedAt")) ?? 0) + pastWait) {
+    await checkJoined(settings);
+    await checkPastAnnotated(settings);
+  }
   const busy = (await waitingTexts()).length > 0;
   if (busy) kickHistory();
   const config = (await load("hconfig")) || {};
@@ -1873,7 +1877,10 @@ async function settleHistory(key) {
       // NOTE: [edge case callout] how many past conversations may still be found is known only once the study
       // server said which ones the participant ID annotated (checkPastAnnotated, asked by historyTick): until
       // then a past turn waits, asked again in a few minutes, rather than being passed over for good
-      if (owner === "past" && !hist.pastFound && (hist.pastJudged || 0) < PAST_TURNS_JUDGED && (await load("pastAnnotated")) === undefined) {
+      // (and once it said when the participant joined: before that, turns of their study weeks on an earlier
+      // install could count as past ones, checkJoined)
+      if (owner === "past" && !hist.pastFound && (hist.pastJudged || 0) < PAST_TURNS_JUDGED &&
+          ((await load("pastAnnotated")) === undefined || !(await load("joinedChecked")))) {
         chrome.alarms.create(`hjudge|${key}`, { delayInMinutes: PAST_ASK_RETRY_MINUTES });
         return;
       }
@@ -2737,8 +2744,10 @@ async function checkPastAnnotated(settings) {
   // a past conversation found here, not annotated yet, that this ID annotated elsewhere since: not asked about
   for (const [, record] of await loadAll("episode:")) {
     if (record.source !== "past" || record.answers || !annotated.includes(fingerprint(record))) continue;
-    await withdrawOffers(record.id);
-    await updateEpisode(record.id, (current) => (current.answers ? current : null));
+    await withdrawOffers(record.id);                 // (before the record goes: it names the tabs of its invitations)
+    let dropped = false;
+    await updateEpisode(record.id, (current) => (current.answers ? current : ((dropped = true), null)));
+    if (!dropped) continue;                          // (answered meanwhile, or dropped by another run)
     await rememberDecided(record.id);
     await count("past_annotated_elsewhere");
   }
