@@ -9,11 +9,7 @@ async function load() {
   document.getElementById("excludedHosts").value = (settings.excludedHosts || []).join("\n");
   document.getElementById("redactNames").value = (settings.redactNames || []).join("\n");
   document.getElementById("paused").checked = !!settings.paused;
-  // NOTE: [design thought] "I agree" is never ticked in advance: turning an option on needs a tick each time
   document.getElementById("readPast").checked = !!settings.readPast;
-  document.getElementById("readApps").checked = !!settings.readApps;
-  document.getElementById("agree").checked = false;
-  shown = { readPast: !!settings.readPast, readApps: !!settings.readApps };
   const mode = document.querySelector(`#rating-mode input[value="${settings.ratingMode || DEFAULTS.ratingMode}"]`);
   if (mode) mode.checked = true;
   // what "Hold my answers on this computer" (before 0.5) held back
@@ -22,23 +18,26 @@ async function load() {
   document.getElementById("held-count").textContent = `${held.length} upload(s)`;
 }
 
-// What the reading options were when this page last showed them: a Save writes an option only if the
-// participant changed its box since
-let shown = { readPast: false, readApps: false };
-
 // NOTE: [edge case callout] the popup can pause or resume tracking while this page is open, and an
-// invitation, a card or "Delete all data" can turn the reading options off: the boxes follow, so a later
-// Save here does not quietly undo it
+// invitation, a card or "Delete all data" can turn reading past conversations off: the boxes follow, so a
+// later Save here does not quietly undo it
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== "local" || !changes.settings?.newValue) return;
   const settings = changes.settings.newValue;
   document.getElementById("paused").checked = Boolean(settings.paused);
-  for (const field of ["readPast", "readApps"]) {
-    if (Boolean(settings[field]) === shown[field]) continue;
-    document.getElementById(field).checked = Boolean(settings[field]);
-    shown[field] = Boolean(settings[field]);
-  }
+  document.getElementById("readPast").checked = Boolean(settings.readPast);
 });
+
+// NOTE: [design thought] one click agrees to reading past conversations, next to the text it agrees to (0.6.11):
+// the box saves itself at once, with no separate "I agree" box and no Save. Another click stops it (the
+// background then deletes the past conversations found and not annotated, and reports the change). Only this
+// field is written, onto the settings as stored now, so other fields typed on the page wait for Save.
+document.getElementById("readPast").onchange = async (event) => {
+  const readPast = event.target.checked;
+  const { settings = {} } = await chrome.storage.local.get("settings");
+  await chrome.storage.local.set({ settings: { ...settings, readPast } });
+  document.getElementById("past-saved").textContent = readPast ? "on, saved" : "off, saved";
+};
 
 for (const [id, send] of [["held-send", true], ["held-delete", false]]) {
   document.getElementById(id).onclick = async () => {
@@ -51,22 +50,11 @@ document.getElementById("save").onclick = async () => {
   const { settings = {} } = await chrome.storage.local.get("settings");
   const lines = (id) => document.getElementById(id).value.split("\n").map((s) => s.trim()).filter(Boolean);
   const paused = document.getElementById("paused").checked;
-  // NOTE: [design thought] reading past or other-device conversations needs the participant's
-  // agreement to the text above; turning an option off needs nothing (the background then deletes
-  // what it found that was not answered, and reports the change)
-  const box = (field) => document.getElementById(field).checked;
-  const readPast = box("readPast") !== shown.readPast ? box("readPast") : Boolean(settings.readPast);
-  const readApps = box("readApps") !== shown.readApps ? box("readApps") : Boolean(settings.readApps);
-  const turnsOn = (readPast && !settings.readPast) || (readApps && !settings.readApps);
-  if (turnsOn && !document.getElementById("agree").checked) {
-    alert('Please read the text about past conversations and other devices, and tick "I have read the above and agree" to turn them on.');
-    return;
-  }
   // NOTE: [edge case callout] the field's min="1" does not stop a click on Save: a negative or zero time
   // would make every check-in due at once and delete every unanswered question at the next start
   const followupSeconds = Math.round(Number(document.getElementById("followupSeconds").value));
   if (!(followupSeconds >= 1)) {
-    alert("Please enter the follow-up time as a whole number of seconds, 1 or more (1209600 = 14 days).");
+    alert("Please enter the follow-up time as a whole number of seconds, 1 or more (604800 = 7 days).");
     return;
   }
   // (the same for the quiet time: zero or less would end every advice conversation as soon as it opens;
@@ -88,10 +76,11 @@ document.getElementById("save").onclick = async () => {
     endQuietMinutes,
     excludedHosts: lines("excludedHosts").map(siteOf).filter(Boolean),          // lib/sites.js: "https://www.Claude.ai/new" -> "claude.ai"
     redactNames: lines("redactNames"),
-    paused, pausedAt, readPast, readApps,
+    paused, pausedAt,                // (reading past conversations is saved by its own box, and stays as stored)
     ratingMode: document.querySelector("#rating-mode input:checked")?.value || DEFAULTS.ratingMode,
   };
   delete next.followupDays;          // (days, before 0.6.1: followupSeconds replaces it)
+  delete next.readApps;              // (the switch for other devices, before 0.6.11: they are always read)
   await chrome.storage.local.set({ settings: next });
   document.getElementById("saved").textContent = "saved";
   load();                     // the sites as they were saved
@@ -113,7 +102,7 @@ document.getElementById("delete").onclick = async () => {
   // write anything back afterwards
   await chrome.runtime.sendMessage({ type: "delete_all" });
   alert("Deleted.");
-  load();              // (the reading options are off now)
+  load();              // (reading past conversations is off now)
 };
 
 load();

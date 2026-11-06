@@ -107,10 +107,11 @@ async function main() {
   if (OUTCOMES) await chrome.storage.local.set({ outcomesSeenAt: Date.now() });
 }
 
-// the episode's kind is turned on (an episode from elsewhere is asked about only while reading it is)
+// the episode can be asked about: its site is not excluded, and a past one only while past conversations are
+// read (conversations from other devices are always read, since 0.6.11)
 function queueKindOn(episode, settings) {
   if (isExcluded(new URL(episode.url).hostname, settings.excludedHosts || [])) return false;
-  return episode.source === "past" ? Boolean(settings.readPast) : episode.source === "app" || episode.heldBy === "history" ? Boolean(settings.readApps) : true;
+  return episode.source !== "past" || Boolean(settings.readPast);
 }
 
 // what happens to the episode's conversation (lib/questions.js), as the background decides it
@@ -256,8 +257,10 @@ function itemCard(episode, settings, now) {
     if (missing.length) { alert("Please answer all the questions marked *."); return; }
     if (past) {
       answeredHere.add(episode.id);
-      await chrome.runtime.sendMessage({ type: "past_submitted", id: episode.id, answers: { ...answers, answeredAt: Date.now() } });
-      done("Thank you. Your answers and this conversation were sent.");
+      const reply = await chrome.runtime.sendMessage({ type: "past_submitted", id: episode.id, answers: { ...answers, answeredAt: Date.now() } });
+      // (not taken: it went meanwhile, annotated already here or on another computer, or the limit of 30 was reached)
+      done(reply?.taken === false ? "This past conversation is no longer open: it was annotated already, or the limit of past conversations was reached. Your answers were not sent."
+                                  : "Thank you. Your answers and this conversation were sent.");
     } else {
       answeredHere.add(episode.id);
       await chrome.runtime.sendMessage({ type: "rating_submitted", id: episode.id, rating: { ...answers, ratedAt: Date.now() },
@@ -396,7 +399,7 @@ if (OUTCOMES) {
   setInterval(renderReading, 60000);         // (a pause the site asked for runs out; a tab was opened)
 }
 
-// ---- how reading the sites goes (0.6 opt-in): one line per site, in plain words ----
+// ---- how reading past conversations goes (0.6 opt-in): one line per site, in plain words ----
 // The background keeps each site's reading state in storage (hstate:<host>: a pause the site asked for,
 // signed out, another account, blocked; hlist:<host>: the conversations listed; hist:<host>/<id>: the
 // ones read). Nothing else shows it to the participant, so a reading that stopped would otherwise look
@@ -405,7 +408,9 @@ if (OUTCOMES) {
 async function readingStatus(stored) {
   const settings = { ...stored.settings }, now = Date.now();
   const lines = [];
-  if (!settings.readPast && !settings.readApps) return { lines, note: "Off. You can turn it on in the extension's settings." };
+  // (the sites are read for conversations from other devices too, but this box belongs to the past conversations:
+  // while their reading is off, the past list says so, and the box is not shown)
+  if (!settings.readPast) return null;
   const excluded = (host) => (settings.excludedHosts || []).some((entry) => host === entry || host.endsWith(`.${entry}`));
   const config = stored.hconfig || {};
   const time = (at) => new Date(at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
@@ -456,8 +461,10 @@ async function renderReading() {
   for (const line of document.querySelectorAll(".queue-count")) line.textContent = queueLine({ site: line.dataset.site, source: line.dataset.source });
   const box = document.getElementById("reading");
   if (!box) return;
-  const { lines, note } = await readingStatus(stored);
-  box.hidden = false;
+  const status = await readingStatus(stored);
+  box.hidden = !status;
+  if (!status) return;
+  const { lines, note } = status;
   box.innerHTML = `<h2>Past conversations status</h2>` +
     (lines.length ? `<ul>${lines.map((line) => `<li><b>${Questions.escape(line.name)}</b> <span class="${line.kind}">${Questions.escape(line.text)}</span></li>`).join("")}</ul>` : "") +
     (note ? `<p class="note">${Questions.escape(note)}</p>` : "");

@@ -8,11 +8,12 @@
   #rating-mode label { display: block; margin: 4px 0; font-weight: normal; }
   button { padding: 8px 18px; border-radius: 8px; border: 1px solid #4f5bd5; background: #4f5bd5; color: #fff; font: inherit; cursor: pointer; margin-top: 16px; margin-right: 8px; }
   button.danger { background: #b3403a; border-color: #b3403a; } button.secondary { background: #f1f1ec; color: #1f2328; border-color: #d9d9d3; }
-  #saved { color: #1e7f4f; margin-left: 8px; }
+  #saved, .saved { color: #1e7f4f; margin-left: 8px; }
   #history { margin-top: 20px; padding: 12px 16px; border: 1px solid #d9d9d3; border-radius: 10px; }
   #history h2 { font-size: 16px; margin: 0 0 6px; } #history label { font-weight: normal; }
   #history:target { border-color: #4f5bd5; box-shadow: 0 0 0 3px #eeeffb; }
   .draft { color: #b3403a; font-size: 12.5px; }
+  #history label.agree { margin-top: 12px; padding: 8px 10px; border: 1px solid #d9d9d3; border-radius: 8px; cursor: pointer; }
 </style>
 <h1>Advice Tracker settings</h1>
 <p class="help">The study is about asking an AI assistant for advice on your own life. <a href="../ui/checkin.html#advice" target="_blank">What counts as advice?</a></p>
@@ -41,19 +42,19 @@
 <textarea id="redactNames" rows="3"></textarea>
 <label><input type="checkbox" id="paused"> Pause tracking <span class="help">(the study team sees when tracking is paused; a reminder comes after 5 days)</span></label>
 <section id="history">
-  <h2>Past conversations and other devices (optional)</h2>
+  <h2>Past conversations and other devices</h2>
   <p class="draft">DRAFT wording: to be replaced with the IRB-approved consent text before release.</p>
-  <p>With your permission, Advice Tracker also reads your conversation list on ChatGPT, Claude, Gemini, Grok and Perplexity,
-    in this browser, while a page of the site is open. It reads it through the site's own web interface, as the site's own
-    pages do, at most once every minute.</p>
+  <p>Advice Tracker also reads your conversation list on ChatGPT, Claude, Gemini, Grok and Perplexity, in this browser,
+    while a page of the site is open. It reads it through the site's own web interface, as the site's own pages do, at most
+    once every minute.</p>
   <ul>
-    <li><b>Past conversations</b>: conversations from up to 90 days before you joined the study. When one looks like you asked
-      for advice, you are invited (on that site's page, at most twice a day) to answer questions about it in a separate tab.
-      <b>You can earn $2 for each past conversation you annotate</b>, up to 30 ($60); each takes about 5-10 minutes. Answering
-      No or Skip is always fine and never affects your participation or your base payment.</li>
-    <li><b>Other devices</b>: conversations you have after joining in the sites' phone or desktop apps, or in another browser
-      (they appear in the website's conversation list too). When one looks like advice, you are asked about it as about those on
-      the web; if you continue it on the web, it is asked about there.</li>
+    <li><b>Other devices</b> (part of the study): conversations you have after joining in the sites' phone or desktop apps,
+      or in another browser (they appear in the website's conversation list too). When one looks like advice, you are asked
+      about it as about those on the web; if you continue it on the web, it is asked about there.</li>
+    <li><b>Past conversations</b> (optional): conversations from up to 90 days before you joined the study. When one looks
+      like you asked for advice, you are invited (on that site's page, at most twice a day) to answer questions about it in a
+      separate tab. <b>You can earn $2 for each past conversation you annotate</b>, up to 30 ($60); each takes about 5-10
+      minutes. Answering No or Skip is always fine and never affects your participation or your base payment.</li>
   </ul>
   <p>Your messages are checked by the study's own AI model, with names and other personal details removed first; it keeps only a
     yes or no. A conversation's text is sent to the study only together with your answers about it, with personal details removed.
@@ -63,11 +64,12 @@
     personal one or a work, school or team one; while another account or workspace is open there, reading that site stops (on Grok,
     which does not say which account is signed in, one account in this browser is assumed, and reading stops while the
     conversation list looks like someone else's).
-    You can turn each option off here at any time: the extension then stops reading, and deletes what it found that you did not answer.
+    You can turn past conversations off here at any time: the extension then stops reading them, and deletes those it found that
+    you did not annotate.
     Note for the study team: reading conversation lists automatically may not be allowed by every site's terms of use.</p>
-  <label><input type="checkbox" id="readPast"> Read my past conversations, so I can annotate some ($2 each, up to 30)</label>
-  <label><input type="checkbox" id="readApps"> Find advice conversations I have in the sites' apps or on other devices</label>
-  <label><input type="checkbox" id="agree"> I have read the above and agree <span class="help">(needed to turn either option on)</span></label>
+  <!-- one click agrees or stops (options.js): no separate "I agree" box, and no Save needed -->
+  <label class="agree"><input type="checkbox" id="readPast"> <b>I agree: read my past conversations</b>, so I can annotate some
+    ($2 each, up to 30) <span class="help">(saved as soon as you click; click again to stop)</span> <span id="past-saved" class="saved"></span></label>
 </section>
 <div id="held" hidden>
   <p><b>Answers held on this computer.</b> Before version 0.5 you chose to hold your answers on this computer;

@@ -31,6 +31,8 @@
 //   joinedAt        when the participant ID was first set: turns before it are past, after it the study's
 //   trackingLog     [{at, on: [hosts]}]: from `at` on, tracking was on for these sites (none while paused)
 //   deletedAt       when "delete all data" last ran
+//   appsFrom        (an install updated to 0.6.11 that had not agreed to read other devices) the update: turns from
+//                   other devices before it are never read
 importScripts("config.js", "lib/sites.js", "lib/episodes.js", "lib/modes.js", "lib/redact.js", "lib/similarity.js", "lib/questions.js",
               "lib/history.js");
 
@@ -44,7 +46,7 @@ const DEFAULT_SETTINGS = {
   updateSeconds: 30,           // the update and confirm pop-ups disappear after this long
   excludedHosts: [], redactNames: [], relatedThreshold: 0.5,
   readPast: false,             // opt-in: read past conversations (before joining) to annotate some (lib/history.js)
-  readApps: false,             // opt-in: read the conversations of the site's apps and other devices since joining
+  // (the conversations of the sites' apps and other devices since joining are always read, since 0.6.11)
 };
 const POLL_WAIT_S = 20;      // one long-poll for a label (Chrome stops a worker that waits > 30 s for a response)
 const RETRY_MINUTES = 2;     // after a failed judgment, or when the server cannot be reached
@@ -338,9 +340,9 @@ async function settle(key) {
     ({ chat, closed, offset } = Episodes.sync(chat, userTurns, new Set(snapshot.sent), snapshot.whole ?? true, Episodes.expectedOffset(chat, snapshot)));
     // where the settled turns sit in this copy now: the next sync looks for them there
     chat = { ...chat, lined: { copy: snapshot.copy, above: snapshot.above, offset } };
-    // with readApps on, an open episode followed by turns the page did not see sent (another device,
-    // most likely) is handed to the walk through the conversation read from the site, instead of ending
-    if (closed?.closedBy === "history" && settings.readApps && historyAllowed(settings, hostOf(snapshot.url)) &&
+    // an open episode followed by turns the page did not see sent (another device, most likely) is
+    // handed to the walk through the conversation read from the site, instead of ending
+    if (closed?.closedBy === "history" && historyAllowed(settings, hostOf(snapshot.url)) &&
         (await handOff(before.episodeId, closed, page, snapshot.url))) {
       chat = { ...chat, episodeId: null };
     } else {
@@ -438,8 +440,8 @@ async function settle(key) {
         return;
       }
       ({ chat, closed } = Episodes.closeOpen(chat, cut <= quietAt ? "cut" : "quiet"));
-      // quiet here with readApps on: the conversation may go on in an app, so the walk takes the episode
-      if (closed.closedBy === "quiet" && settings.readApps && historyAllowed(settings, hostOf(snapshot.url)) &&
+      // quiet here: the conversation may go on in an app, so the walk takes the episode
+      if (closed.closedBy === "quiet" && historyAllowed(settings, hostOf(snapshot.url)) &&
           (await handOff(chat.episodeId, closed, page, snapshot.url))) {
         chat = { ...chat, episodeId: null };
         if (stale()) return;
@@ -1377,9 +1379,10 @@ async function expireWaiting() {
   await updateBadge();
 }
 
-// ---------------- conversations read from the site itself (0.6, opt-in) ----------------
-// With readPast or readApps on (settings page, after the participant agreed), the worker reads the
-// participant's conversation list and, one at a time, the conversations that changed, through a
+// ---------------- conversations read from the site itself (0.6) ----------------
+// While tracking is on, the worker reads the participant's conversation list (for their conversations on
+// other devices since joining, always since 0.6.11, and their past ones if they agreed to it on the settings
+// page) and, one at a time, the conversations that changed, through a
 // loaded tab of the site (content/history.js asks the site's own API: lib/history/<site>.js). Their
 // user turns are sorted by who sent them (lib/history.js): past turns (before the participant
 // joined) and app turns (after it, not seen on the web) are judged here, by a walk through the
@@ -1418,39 +1421,42 @@ const WEB_WAIT_MS = 5 * 60000;         // ... and the walk this long for the web
 const HISTORY_SUBMIT_GAP_MS = 15000, HISTORY_DAILY_MAX = 200, JUDGE_QUEUE_BUSY = 2;
 const INVITE_GAP_MS = 4 * 3600 * 1000, PAST_INVITES_A_DAY = 2, PAST_MISSES_MAX = 3, BUSY_PAGE_MS = 5 * 60000;    // (a day: any 24 hours)
 const PAST_ASK_RETRY_MINUTES = 10;     // GET /past not answered yet: asked again, and past turns wait, this long
-const historyOn = (settings) => Boolean(settings.readPast || settings.readApps);
 // Reading, judging and asking about conversations read from a site happen only while tracking is on
-// (participant ID set, not paused), the site is not excluded, and a switch is on.
-const historyAllowed = (settings, host) => historyOn(settings) && !trackingOff(settings) && !excluded(settings, `https://${host}/`);
+// (participant ID set, not paused) and the site is not excluded.
+const historyAllowed = (settings, host) => !trackingOff(settings) && !excluded(settings, `https://${host}/`);
 const hostOf = (url) => new URL(url).hostname;
 const epochNow = async () => (await load("historyEpoch")) || 0;
 async function loadText(key) { return (await chrome.storage.session.get(`htext:${key}`))[`htext:${key}`]; }
 async function waitingTexts() { return Object.keys(await chrome.storage.session.get(null)).filter((name) => name.startsWith("htext:")); }
-// the kind an episode belongs to, for the switches: found among past turns, or (from elsewhere) app
-const kindOf = (record) => (record.source === "past" ? "past" : record.source === "app" || record.heldBy === "history" ? "app" : "web");
-const kindOn = (settings, record) => ({ past: settings.readPast, app: settings.readApps, web: true })[kindOf(record)];
+// whether an episode's kind is asked about: one found among past turns only while past conversations are
+// read (the only switch); those from other devices and the web's always
+const kindOn = (settings, record) => record.source !== "past" || Boolean(settings.readPast);
 // the episode's key for the study team, to pay each past conversation once: its chat, its request's
 // turn and the site's time of it (no hash of any text: it could be checked against guesses)
 const fingerprint = (record) => `${Episodes.hash(record.chatKey)}-${record.opening}-${(record.openedAt || 0).toString(36)}`;
+// the conversation a fingerprint names: its chat's hash (hexadecimal, so without "-"). The limit counts
+// conversations, and one is annotated once, whichever of its turns an install took for the request.
+const conversationOf = (print) => String(print).split("-")[0];
 
 // What may be read of `host` now (lib/history.js windows)
 async function historyWindows(host, settings) {
   const joinedAt = await load("joinedAt");
   const windows = History.windows({ host, joinedAt, pastBefore: (await load("pastBefore")) ?? joinedAt, floor: (await load("deletedAt")) || 0,
-                                    trackingLog: (await load("trackingLog")) || [], aliveLog: (await load("aliveLog")) || [], now: Date.now(),
-                                    lookbackDays: STUDY_CONFIG.pastLookbackDays, readPast: settings.readPast, readApps: settings.readApps });
+                                    appsFrom: (await load("appsFrom")) || 0, trackingLog: (await load("trackingLog")) || [],
+                                    aliveLog: (await load("aliveLog")) || [], now: Date.now(), lookbackDays: STUDY_CONFIG.pastLookbackDays,
+                                    readPast: settings.readPast });
   // (the gaps of the part of the extension's own log that was dropped as it grew)
   return { ...windows, off: [...windows.off, ...((await load("aliveGaps")) || [])] };
 }
 
 // ---- reading ----
-// Every minute while a switch is on (alarm hread): one request to one site, if one is due.
+// Every minute (alarm hread): one request to one site, if one is due.
 // NOTE: [design thought] one conversation at a time: no other conversation is read while one waits to
 // be judged (the storage and the judge stay small), except one a web page waits for; the list's
 // first page (no text) is refreshed meanwhile
 async function historyTick() {
   const settings = await getSettings();
-  if (!historyOn(settings) || trackingOff(settings) || !(await load("joinedAt"))) return;
+  if (trackingOff(settings) || !(await load("joinedAt"))) return;
   // the past conversations this participant ID annotated on any install (checkPastAnnotated): asked again every
   // hour while past conversations are read, and every few minutes until the study server answered once
   // (when the participant joined is asked with it until the server answered: past turns wait for both)
@@ -1503,6 +1509,12 @@ async function historyStep(host, settings, state, busy) {
   // switched off, deleted or paused meanwhile: what came back is dropped
   if ((await epochNow()) !== epoch || !historyAllowed(await getSettings(), host)) return true;
   await historyReply(host, request, reply);
+  // (a chat page that waits for the walk is looked at again at once when the read failed or the site's reading
+  // stopped: it then goes on without waiting any longer, takeFromElsewhere)
+  const after = (await load(`hstate:${host}`)) || {};
+  if (!reply?.ok || after.blocked || (after.waitUntil ?? 0) > Date.now()) {
+    for (const [, chat] of await loadAll("chat:")) if (chat.waitedSince && chat.key?.startsWith(`${host}/`)) advance(chat.key);
+  }
   return true;
 }
 
@@ -1521,10 +1533,8 @@ async function nextToRead(host, list, windows, settings) {
   // read (a site's list and its conversation can give different times for the same change)
   const waits = (hist, item) => hist && (hist.failedU === item.u ? hist.failures >= READ_TRIES_MAX || hist.retryAt > now
                                                                  : hist.listedU === item.u);
-  if (settings.readApps) {
-    const changed = list.items.find((item) => item.u >= windows.appFrom && !waits(known.get(item.id), item));
-    if (changed) return { id: changed.id, reason: "app" };
-  }
+  const changed = list.items.find((item) => item.u >= windows.appFrom && !waits(known.get(item.id), item));
+  if (changed) return { id: changed.id, reason: "app" };
   if (!settings.readPast || !(await load("joinedChecked")) || (await pastLeft()) <= 0 ||
       [...known.values()].filter((hist) => hist.pastRead).length >= PAST_SCAN_MAX) return null;
   const past = list.items.find((item) => (item.c ?? item.u) < windows.pastBefore && item.u >= windows.pastFrom &&
@@ -1534,14 +1544,15 @@ async function nextToRead(host, list, windows, settings) {
 
 // How many more past conversations may be found: at most pastLimit waiting or annotated (skipped ones
 // and "No" do not count), on this computer or, under the same participant ID, on any other install
-// (the study server's list: checkPastAnnotated). The same conversation counts once (its fingerprint).
-// None until the server answered: not in a past-only read, nor among the past turns of a conversation read
-// for its turns from other devices.
+// (the study server's list: checkPastAnnotated). A conversation counts once, whichever of its turns was
+// taken for its request (conversationOf). None until the server answered: not in a past-only read, nor
+// among the past turns of a conversation read for its turns from other devices.
 async function pastLeft() {
   const elsewhere = await load("pastAnnotated");
   if (elsewhere === undefined) return 0;
-  const here = (await loadAll("episode:")).filter(([, record]) => record.source === "past").map(([, record]) => fingerprint(record));
-  return STUDY_CONFIG.pastLimit - new Set([...here, ...elsewhere]).size;
+  const here = (await loadAll("episode:")).map(([, record]) => record)
+    .filter((record) => record.source === "past" && record.status !== "removed").map(fingerprint);
+  return STUDY_CONFIG.pastLimit - new Set([...here, ...elsewhere].map(conversationOf)).size;
 }
 
 // What the tab answered. For the list, the site's own pauses are kept: 429 (it asked to wait: from 30
@@ -1565,7 +1576,7 @@ async function historyReply(host, request, reply) {
     return serialized(`hist:${key}`, async () => {
       const hist = (await load(`hist:${key}`)) || { key, id: request.id, host, turns: [], ids: [], judge: null };
       const failures = hist.failedU === request.listedU ? (hist.failures || 0) + 1 : 1;
-      await save(`hist:${key}`, { ...hist, failedU: request.listedU, failures, retryAt: now + 10 * 60000 * 2 ** (failures - 1) });
+      await save(`hist:${key}`, { ...hist, failedU: request.listedU, failures, failedAt: now, retryAt: now + 10 * 60000 * 2 ** (failures - 1) });
     });
   }
   // (noAnswer: the page stayed silent, usually a tab from before the install or an update that has no
@@ -1693,7 +1704,7 @@ async function historyConversation(host, conversation, listedU = null, past = fa
       else if (open) vanished = open.episodeId;
     }
     if (started !== generation) return;
-    const { failedU, failures, retryAt, gone, tooLong, ...kept } = before || {};
+    const { failedU, failures, failedAt, retryAt, gone, tooLong, ...kept } = before || {};
     await save(`hist:${key}`, { ...kept, key, id: conversation.id, chat, host, site: SITE_CONFIGS[host].name, url: conversation.url,
                                 title: conversation.title || "", createdAt: conversation.createdAt, updatedAt: conversation.updatedAt,
                                 listedU: listedU ?? conversation.updatedAt, pastRead: Boolean(before?.pastRead || past),
@@ -1997,11 +2008,18 @@ async function followHistoryEpisode(hist, judge, page, settings) {
                   webWaitSince: null, pastPending: false };
   if (!record) {
     if (((await load("hdone")) || []).includes(judge.episodeId)) return letGo;
-    // NOTE: [edge case callout] a past conversation this participant ID annotated already, on an earlier install
-    // or another computer (the study server's list: checkPastAnnotated), is not asked about again
-    if (judge.pastPending && ((await load("pastAnnotated")) || []).includes(fingerprint({ chatKey: hist.chat, opening: judge.opening, openedAt: judge.openedAt }))) {
-      await rememberDecided(judge.episodeId);
-      return letGo;
+    if (judge.pastPending) {
+      // NOTE: [edge case callout] a past conversation this participant ID annotated already, on an earlier install
+      // or another computer (the study server's list: checkPastAnnotated), is not asked about again, also not from
+      // another of its turns (a judge that answers otherwise there); nor is one found here before (a walk that
+      // started again: the switch was turned off and on). And the limit may have been reached while the
+      // judgment was on its way (another install's annotations came meanwhile): then nothing more is found.
+      const conversation = Episodes.hash(hist.chat);
+      const annotated = ((await load("pastAnnotated")) || []).some((print) => conversationOf(print) === conversation);
+      const foundBefore = (await loadAll("episode:")).some(([, other]) => other.source === "past" && other.chatKey === hist.chat &&
+                                                                         other.status !== "removed");
+      if (annotated || foundBefore) { await rememberDecided(judge.episodeId); return letGo; }
+      if ((await pastLeft()) <= 0) return letGo;
     }
     if (!page || !historyAllowed(settings, hist.host)) return judge;
     const source = judge.pastPending ? "past" : "app";
@@ -2106,7 +2124,7 @@ function rememberDecided(id) {
 
 // ---- hand-overs between the web page and the walk ----
 // The web chat's open episode meets turns the page did not see sent (another device, most likely), or
-// goes quiet, while readApps is on: it is handed to the walk instead of ending (its text from the
+// goes quiet: it is handed to the walk instead of ending (its text from the
 // page, its turns' loose hashes to be found again). `closed` gives its turns. Returns whether it went.
 async function handOff(id, closed, page, url) {
   let handed = false;
@@ -2165,6 +2183,16 @@ async function settleHanded() {
   }
 }
 
+// Whether the walk cannot read the conversation at `url` now: the study team switched the site's reading
+// off, the site's reading is stopped or paused (blocked, signed out, another account, a pause the site asked
+// for, a tab that did not answer: historyReply), or a read of this conversation failed since `since`.
+async function readingStalled(url, since) {
+  const host = hostOf(url), id = SITE_CONFIGS[host]?.conversationId(new URL(url));
+  if (!id || !HISTORY_SITES.includes(host) || ((await load("hconfig")) || {}).history?.[host] === false) return true;
+  const state = (await load(`hstate:${host}`)) || {}, hist = await load(`hist:${host}/${id}`);
+  return Boolean(state.blocked) || (state.waitUntil ?? 0) > Date.now() || (hist?.failedAt ?? -Infinity) >= since;
+}
+
 // The web page continues an episode held by the walk (an episode found on another device, or one the
 // web page handed over before): turn `turn` was sent on the page right after turns it did not see
 // sent. Waits (up to LIVE_WAIT_MS) until the walk has judged the conversation up to `turn - 1`, the
@@ -2175,7 +2203,7 @@ async function takeFromElsewhere(key, chat, page, settings) {
   const turn = chat.judgedThrough + 1;
   const { userTurns, snapshot } = page;
   const proceed = () => (chat.waitedSince ? { ...chat, waitedSince: null, waitProgress: null, waitProgressAt: null } : chat);
-  if (!settings.readApps || !historyAllowed(settings, hostOf(snapshot.url)) || chat.state !== "searching" || turn !== chat.segmentStart ||
+  if (!historyAllowed(settings, hostOf(snapshot.url)) || chat.state !== "searching" || turn !== chat.segmentStart ||
       turn < 2 || turn > userTurns.length) return proceed();
   const ids = Episodes.turnIds(userTurns), sent = new Set(snapshot.sent);
   if (sent.has(ids[turn - 2]) || !sent.has(ids[turn - 1])) return proceed();
@@ -2185,8 +2213,11 @@ async function takeFromElsewhere(key, chat, page, settings) {
   if (!(index >= 0 && hist.judge.judgedThrough >= index + 1 && !hist.judge.pending)) {
     // NOTE: [design thought] the turn waits while the walk gets on with these turns (each new judgment
     // starts the wait again), at most LIVE_WAIT_MAX_MS in all; it goes on without them if the walk
-    // makes no progress for LIVE_WAIT_MS
+    // makes no progress for LIVE_WAIT_MS, and at once if the walk cannot read this conversation now
+    // (readingStalled: since 0.6.11 every install reads the sites, so a site whose reading stopped would
+    // otherwise hold back the first message of every conversation continued there)
     const now = Date.now(), progress = hist?.judge?.judgedThrough ?? -1;
+    if (await readingStalled(snapshot.url, chat.waitedSince ?? now)) return proceed();
     if (!chat.waitedSince) await readFirst(snapshot.url);
     const since = chat.waitedSince ?? now, moved = progress !== chat.waitProgress;
     const last = moved ? now : chat.waitProgressAt ?? since;
@@ -2223,51 +2254,41 @@ async function takeFromElsewhere(key, chat, page, settings) {
 }
 
 // ---- switches, deletion ----
-// A reading switch changed: every walk starts again from scratch (records and the remembered
-// decisions keep it from asking twice; an open episode a walk held is taken up again by the new walk,
-// or ends by itself: settleHanded), and requests under way are dropped. For a kind turned off:
-// - found among past turns, or among turns from elsewhere (source past, app), without answers: it goes
-//   (one the web page took over ends as "removed" through its chat);
-// - with answers: they stay, with the check-in, but none of its text is sent any more (keepText), and
-//   final answers are no longer asked;
-// - a web episode handed to the walk ends ("stopped") and is the web's again; if turns from elsewhere
-//   had joined it, its text stays on the computer.
+// Reading past conversations was turned on or off (the only switch since 0.6.11): every walk starts again
+// from scratch (records and the remembered decisions keep it from asking twice; an open episode a walk held
+// is taken up again by the new walk, or ends by itself: settleHanded), and requests under way are dropped.
+// Turned off (`stopped`), each past episode found:
+// - without answers goes (one the web page took over ends as "removed" through its chat);
+// - with answers keeps them, but none of its text is sent any more (keepText).
 async function historySwitched(stopped) {
   await serialized("historyEpoch", async () => save("historyEpoch", (await epochNow()) + 1));
   for (const [name] of [...(await loadAll("hist:")), ...(await loadAll("hlist:"))]) await remove(name);
   for (const name of await waitingTexts()) await chrome.storage.session.remove(name);
   for (const [, record] of await loadAll("episode:")) {
     if (record.heldBy === "history" && record.walk) await updateEpisode(record.id, (current) => ({ ...current, walk: null }));
-    const kind = record.source === "past" ? "past" : record.source === "app" || record.heldBy === "history" ? "app" : null;
-    if (!kind || !stopped.includes(kind)) continue;
-    const close = (closedBy) => episodeClosed({ id: record.id, start: record.start, opening: record.opening, end: record.end, closedBy,
-                                                openedAt: record.openedAt }, null);
-    if ((record.source ?? "web") === "web") {
-      if (record.status === "open") await close("stopped");
-      await updateEpisode(record.id, (current) => ({ ...(current.grew ? { ...withoutText(current), keepText: true } : current),
-                                                     heldBy: "web", walk: null, finalDue: false }));
-      continue;
-    }
+    if (!stopped || record.source !== "past") continue;
     if (!record.answers) {
       if (record.status === "open" && record.heldBy === "web") { await removeEpisode(record.id); continue; }
       await updateEpisode(record.id, () => null);
       for (const alarm of ["pause", "ask", "remind", "checkin", "heldcut"]) chrome.alarms.clear(`${alarm}|${record.id}`);
       continue;
     }
-    if (record.status === "open" && record.heldBy !== "web") await close("stopped");
+    if (record.status === "open" && record.heldBy !== "web") {
+      await episodeClosed({ id: record.id, start: record.start, opening: record.opening, end: record.end, closedBy: "stopped",
+                            openedAt: record.openedAt }, null);
+    }
     await updateEpisode(record.id, (current) => ({ ...withoutText(current), keepText: true, finalDue: false }));
   }
   await settleHanded();
   await updateBadge();
 }
 
-// The participant agreed to (or stopped) reading: recorded for the study team, with the version of
-// the text they agreed to
+// The participant agreed to (or stopped) reading their past conversations: recorded for the study team,
+// with the version of the text they agreed to. (Other devices have no switch since 0.6.11: no consent of
+// their own; read_apps stays in the status reports, always true.)
 async function consentChanged(before, after, settings) {
-  for (const [field, feature] of [["readPast", "read_past"], ["readApps", "read_apps"]]) {
-    if (Boolean(before[field]) === Boolean(after[field])) continue;
-    await upload("consent", { feature, accepted: Boolean(after[field]), version: STUDY_CONFIG.historyConsentVersion }, settings);
-  }
+  if (Boolean(before.readPast) === Boolean(after.readPast)) return;
+  await upload("consent", { feature: "read_past", accepted: Boolean(after.readPast), version: STUDY_CONFIG.historyConsentVersion }, settings);
 }
 
 // ---- the queue: one question at a time per site ----
@@ -2366,6 +2387,10 @@ async function onCardAnswer(message) {
   await upload("prompt", { episode: record.id, source: record.source ?? "web", mode: record.mode, prompt: "card", answer: message.answer,
                            incentive_shown: record.source === "past" }, await getSettings());
   if (message.answer === "yes") await updateEpisode(record.id, (current) => ({ ...current, confirmedAt: current.confirmedAt ?? Date.now() }));
+  // NOTE: [edge case callout] before the participant annotates a past conversation, the study server is asked again
+  // which ones this participant ID annotated: since the hourly ask, another computer's annotations may have used up
+  // the limit, or annotated this conversation (checkPastAnnotated then drops it, and the page says so)
+  if (message.answer === "yes" && record.source === "past") await checkPastAnnotated(await getSettings());
   if (message.answer === "no") await onNotAdvice(message);
   if (message.answer === "skip") await onPastSkipped(message);
   if (message.answer !== "yes") await serialized(`qstate:${record.site}`, async () => {
@@ -2375,28 +2400,52 @@ async function onCardAnswer(message) {
 }
 
 // The past conversation's questions are answered: they go with its conversation (from the advice
-// request on, redacted), and the record lets go of the text.
+// request on, redacted), and the record lets go of the text. Returns whether the answers were taken (not
+// when the past conversation went meanwhile: annotated elsewhere or over the limit, checkPastAnnotated; or
+// was answered already, in another tab).
 async function onPastSubmitted(message) {
-  const settings = await getSettings();
   let answered = null;
   await updateEpisode(message.id, (current) => {
     if (current.source !== "past" || current.answers || current.status !== "pending") return current;
     answered = { ...current, answers: message.answers, versions: 1, answeredEnd: current.end, confirmedAt: current.confirmedAt ?? Date.now() };
     return answered;
   });
-  if (!answered) return;
-  const conversation = await transcript(answered, answered.end, settings);
-  await upload("past_annotation", {
-    episode: answered.id, fingerprint: fingerprint(answered), site: answered.site, source: "past", opened_at: answered.openedAt,
-    conversation_created_at: answered.conversationCreatedAt ?? null, detected_at: answered.detectedAt,
-    days_since: Math.round((Date.now() - answered.openedAt) / DAY_MS), turns: answered.end - answered.start + 1,
-    opening_turn: answered.opening - answered.start + 1, answers: redactAnswers(message.answers, settings.redactNames),
-    related_earlier: answered.related.length, transcript: conversation?.messages ?? null, redacted: conversation?.counts ?? null,
+  if (!answered) return false;
+  await finishPastAnnotation(answered.id);
+  return true;
+}
+
+// An annotated past episode (its answers saved) is finished: its annotation, with its conversation, goes into
+// the upload queue first, then the record lets go of its text, then the queue is sent.
+// NOTE: [edge case callout] queued before it is sent: the annotation exists nowhere else, so a browser that quits
+// while it is on its way must not lose it (the study pays by the server's list). One that a quit left half done
+// (answers saved, not queued or not yet done) is finished at the next start (resumeAll); the queue's check keeps
+// it from going twice from here (a resend after a lost answer from the server is possible: the server's list is a set).
+async function finishPastAnnotation(id) {
+  const settings = await getSettings();
+  const record = await load(`episode:${id}`);
+  if (!record || record.source !== "past" || !record.answers || record.status !== "pending") return;
+  const conversation = await transcript(record, record.end, settings);
+  const event = { type: "past_annotation", participant_id: settings.participantId, sent_at: Date.now(), payload: {
+    episode: record.id, fingerprint: fingerprint(record), site: record.site, source: "past", opened_at: record.openedAt,
+    conversation_created_at: record.conversationCreatedAt ?? null, detected_at: record.detectedAt,
+    days_since: Math.round((Date.now() - record.openedAt) / DAY_MS), turns: record.end - record.start + 1,
+    opening_turn: record.opening - record.start + 1, answers: redactAnswers(record.answers, settings.redactNames),
+    related_earlier: record.related.length, transcript: conversation?.messages ?? null, redacted: conversation?.counts ?? null,
     ...(await studyClock()),
-  }, settings);
-  await updateEpisode(answered.id, (current) => doneRecord(current));
-  await count("past_annotated");
+  } };
+  const started = generation;
+  await serialized("queue", async () => {
+    const queue = (await load("queue")) || [];
+    // ("delete all data" began meanwhile: nothing goes; queued already by a run that was cut short: once)
+    if (started !== generation || queue.some((other) => other.type === "past_annotation" && other.payload.episode === id)) return;
+    await save("queue", [...queue, event]);
+  });
+  let finished = false;
+  await updateEpisode(id, (current) => (current.answers && current.status === "pending" ? ((finished = true), doneRecord(current)) : current));
+  if (finished) await count("past_annotated");
   await updateBadge();
+  flushQueue();                                        // (not awaited: the page that sent the answers waits for none of it)
 }
 
 // Skip: the participant does not annotate this past conversation. It goes (nothing is sent but the
@@ -2452,11 +2501,15 @@ const REJECTED_RETRIES = 2;
 const refusesEvent = (status) => status >= 400 && status < 500 && ![401, 403, 404, 408, 429].includes(status);
 
 // Post one event: "sent", "rejected" (refused for itself) or "failed" (to be tried again)
+// NOTE: [edge case callout] half of an emoji (a lone UTF-16 surrogate) in any text, e.g. one a site cut, would make the
+// study server refuse the event for good (it stores UTF-8): each string goes well-formed, the half replaced by U+FFFD
+// (JSON.stringify calls the replacer for every value)
+const wellFormed = (key, value) => (typeof value === "string" ? value.toWellFormed() : value);
 async function post(event, settings) {
   try {
     const response = await fetch(`${settings.serverUrl}/events`, {
       method: "POST", headers: { "Content-Type": "application/json", "X-Study-Key": settings.studyKey },
-      body: JSON.stringify(event), signal: AbortSignal.timeout(25000),
+      body: JSON.stringify(event, wellFormed), signal: AbortSignal.timeout(25000),
     });
     return response.ok ? "sent" : refusesEvent(response.status) ? "rejected" : "failed";
   } catch (error) {
@@ -2529,7 +2582,7 @@ async function trackingStatus(settings) {
   }
   return { tracking: Boolean(settings.participantId) && !settings.paused && listening.length > 0, paused: settings.paused, paused_at: settings.pausedAt,
            listening_sites: listening, excluded_sites: excludedSites, sites_without_access: withoutAccess,
-           read_past: Boolean(settings.readPast), read_apps: Boolean(settings.readApps) };
+           read_past: Boolean(settings.readPast), read_apps: true };
 }
 
 // Twice a day: the extension is still installed, whether it is tracking, and counts only (IRB
@@ -2746,16 +2799,33 @@ async function checkPastAnnotated(settings) {
   // NOTE: [edge case callout] an answer about a participant ID changed meanwhile is not this ID's list
   if ((await getSettings()).participantId !== settings.participantId) return;
   await save("pastAnnotated", annotated);
-  // a past conversation found here, not annotated yet, that this ID annotated elsewhere since: not asked about
-  for (const [, record] of await loadAll("episode:")) {
-    if (record.source !== "past" || record.answers || !annotated.includes(fingerprint(record))) continue;
-    await withdrawOffers(record.id);                 // (before the record goes: it names the tabs of its invitations)
+  // a past episode found here and not annotated goes: its invitations first (the record names their tabs);
+  // nothing if it was answered meanwhile, or dropped by another run
+  const drop = async (record, counter, remember) => {
+    await withdrawOffers(record.id);
     let dropped = false;
     await updateEpisode(record.id, (current) => (current.answers ? current : ((dropped = true), null)));
-    if (!dropped) continue;                          // (answered meanwhile, or dropped by another run)
-    await rememberDecided(record.id);
-    await count("past_annotated_elsewhere");
+    if (!dropped) return;
+    if (remember) await rememberDecided(record.id);
+    await count(counter);
+  };
+  // a past conversation found here, not annotated yet, that this ID annotated elsewhere since (from any of its
+  // turns): not asked about
+  const annotatedConversations = new Set(annotated.map(conversationOf));
+  for (const [, record] of await loadAll("episode:")) {
+    if (record.source !== "past" || record.answers || !annotatedConversations.has(Episodes.hash(record.chatKey))) continue;
+    await drop(record, "past_annotated_elsewhere", true);
   }
+  // NOTE: [edge case callout] two installs of one participant ID (two computers) can each find past conversations
+  // before the other's are annotated. Once the other's annotations bring the total over the limit, the ones
+  // waiting here go (they could not be paid), until it holds again: those found last first, and one the
+  // participant said Yes to (is annotating) last. They are not remembered as decided: the participant never
+  // answered them.
+  const over = -(await pastLeft());
+  const waiting = (await loadAll("episode:")).map(([, record]) => record)
+    .filter((record) => record.source === "past" && !record.answers && record.status !== "removed")
+    .sort((a, b) => Boolean(a.confirmedAt) - Boolean(b.confirmedAt) || b.detectedAt - a.detectedAt);
+  for (const record of waiting.slice(0, Math.max(0, over))) await drop(record, "past_over_limit", false);
   await updateBadge();
 }
 
@@ -2803,8 +2873,8 @@ async function deleteAll() {
   deletingSince = Infinity;
   // NOTE: [design thought] also kept: when the participant joined, when tracking was on and when the
   // extension ran, this install's id, the reading's epoch (no conversation content); without them,
-  // conversations of the study period would count as past ones. Reading conversations from the sites
-  // stops (both switches off: the participant agrees again to turn it on), and nothing from before
+  // conversations of the study period would count as past ones. Reading past conversations stops (the
+  // participant agrees again to turn it on; other devices are still read), and nothing from before
   // now is ever read again (deletedAt is the floor of lib/history.js windows).
   const kept = {};
   for (const name of ["settings", "heartbeatAt", "joinedAt", "joinedEstimated", "joinedChecked", "pastBefore", "trackingLog", "aliveLog", "aliveGaps", "installId",
@@ -2813,7 +2883,7 @@ async function deleteAll() {
     if (value !== undefined) kept[name] = value;
   }
   const before = kept.settings ? { ...kept.settings } : null;
-  if (kept.settings) kept.settings = { ...kept.settings, readPast: false, readApps: false };
+  if (kept.settings) kept.settings = { ...kept.settings, readPast: false };
   kept.historyEpoch = (kept.historyEpoch || 0) + 1;
   await chrome.storage.local.clear();
   await chrome.storage.session.clear();
@@ -2826,9 +2896,10 @@ async function deleteAll() {
   await chrome.alarms.clearAll();
   await keepHeartbeatAlarm();
   await keepOutcomesAlarm();
+  await keepHistoryAlarm();
   await updateBadge();
-  // the switches were turned off with the data: reported as any opt-out is (the settings' own change
-  // event does not fire for a cleared store)
+  // past conversations were turned off with the data: reported as any opt-out is (the settings' own
+  // change event does not fire for a cleared store)
   if (before) { await consentChanged(before, kept.settings, kept.settings); await statusChanged(); }
 }
 
@@ -2870,6 +2941,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     onFollowupAnswer(message, sendResponse);
     return true;
   }
+  // (the page thanks the participant only for answers taken: onPastSubmitted)
+  if (message.type === "past_submitted") {
+    withdrawOffers(message.id).then(() => onPastSubmitted(message)).then((taken) => sendResponse({ taken }));
+    return true;
+  }
 
   // NOTE: [design thought] answer at once and do the work in the background: a judgment can take
   // minutes, and a listener that keeps its caller waiting that long is stopped by Chrome
@@ -2898,7 +2974,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     case "invite_answer": offerAnswered(message).then(() => onInviteAnswer(message, tabId)); break;
     // (the extension tab's card: an answer that ends the question withdraws its invitations too)
     case "card_answer": (["no", "skip"].includes(message.answer) ? withdrawOffers(message.id) : Promise.resolve()).then(() => onCardAnswer(message)); break;
-    case "past_submitted": withdrawOffers(message.id).then(() => onPastSubmitted(message)); break;
     case "flush": flushQueue(); break;
     case "held": onHeld(message); break;
     case "panel_gone": offerRefused(tabId); break;              // a page went without an answer ("No", or dealt with elsewhere)
@@ -2959,6 +3034,7 @@ async function resumeAll() {
     if (record.checkin && !record.checkin.doneAt) await armFollowup(record.id);
     if (record.remindAt) chrome.alarms.create(`remind|${record.id}`, { when: Math.max(record.remindAt, soon) });
     if (record.dueAsk) chrome.alarms.create(`ask|${record.id}`, { when: soon });
+    if (record.source === "past" && record.answers && record.status === "pending") await finishPastAnnotation(record.id);
   }
   for (const [name] of await loadAll("snap:")) advance(name.slice("snap:".length));
   await expireWaiting();
@@ -2971,10 +3047,8 @@ async function resumeAll() {
   kickHistory();
 }
 
-// Reading conversations from the site: an alarm every minute while a switch is on
+// Reading conversations from the site: an alarm every minute (historyTick does nothing while tracking is off)
 async function keepHistoryAlarm() {
-  const settings = await getSettings();
-  if (!historyOn(settings)) { await chrome.alarms.clear("hread"); return; }
   if (!(await chrome.alarms.get("hread"))) chrome.alarms.create("hread", { periodInMinutes: 1 });
 }
 
@@ -2995,6 +3069,14 @@ chrome.runtime.onInstalled.addListener(async (details) => {
   if (details.reason === "update" && /^0\.([0-5]\.|6\.[0-8]$)/.test(details.previousVersion || "") && settings.followupSeconds === 14 * 24 * 3600) {
     settings.followupSeconds = DEFAULT_SETTINGS.followupSeconds;
   }
+  // NOTE: [design thought] since 0.6.11 the conversations of the sites' apps and other devices are always read
+  // (the settings page has no switch for them any more). An install updated from an earlier version whose
+  // participant had not turned them on reads only what comes after the update (they never agreed to more),
+  // and shows the settings page once, where the text says so.
+  const appsTurnedOn = details.reason === "update" && /^0\.([0-5]\.\d+|6\.([0-9]|10))$/.test(details.previousVersion || "") &&
+                       settings.readApps !== true && !(await load("appsFrom"));
+  if (appsTurnedOn) await save("appsFrom", Date.now());
+  delete settings.readApps;
   // NOTE: [design thought] the update to 0.5 keeps the promises earlier versions made:
   // - "Hold my answers on this computer" is gone, but what it held is not sent without asking: it
   //   waits under "held", with the episodes it belongs to, and the settings page (opened now)
@@ -3033,9 +3115,10 @@ chrome.runtime.onInstalled.addListener(async (details) => {
   delete settings.followupDays;        // (before 0.6.1; getSettings converted it to followupSeconds)
   await save("settings", settings);
   if (!settings.participantId || wasHolding) chrome.runtime.openOptionsPage();
-  // NOTE: [design thought] participants updated from an earlier version see the new, optional reading
-  // of past and other-device conversations once (it stays off unless they agree there)
-  else if (details.reason === "update" && /^0\.[0-5]\./.test(details.previousVersion || "")) {
+  // NOTE: [design thought] participants updated from before 0.6 see the reading of past and other-device
+  // conversations once (past ones stay off unless they agree there), and so do those whose other devices are
+  // read from this update on
+  else if (details.reason === "update" && (/^0\.[0-5]\./.test(details.previousVersion || "") || appsTurnedOn)) {
     chrome.tabs.create({ url: chrome.runtime.getURL("options/options.html#history") });
   }
   await resumeAll();
@@ -3066,12 +3149,10 @@ chrome.storage.onChanged.addListener((changes, area) => {
     (corrected ? load("joinedAt").then(async (joinedAt) => { if (joinedAt) await save("pastBefore", joinedAt); await remove("joinedChecked"); }) : Promise.resolve())
       .then(() => remove("pastAnnotated")).then(() => checkJoined(after)).then(() => checkPastAnnotated(after));
   }
-  // reading past conversations, or those from other devices, turned on or off: recorded (with the
-  // version of the text agreed to), and the walks start again (opting out stops it, and its unanswered
-  // episodes go)
-  if (differs("readPast") || differs("readApps")) {
-    const stopped = [["readPast", "past"], ["readApps", "app"]].filter(([field]) => before[field] && !after[field]).map(([, kind]) => kind);
-    historySwitched(stopped).then(() => consentChanged(before, after, after)).then(statusChanged).then(keepHistoryAlarm)
+  // reading past conversations turned on or off: recorded (with the version of the text agreed to), and the
+  // walks start again (opting out stops it, and its unanswered past episodes go)
+  if (Boolean(before.readPast) !== Boolean(after.readPast)) {
+    historySwitched(!after.readPast).then(() => consentChanged(before, after, after)).then(statusChanged).then(keepHistoryAlarm)
       .then(() => checkJoined(after)).then(() => checkPastAnnotated(after)).then(() => fetchStudyConfig(after));
   }
   if (trackingOff({ ...DEFAULT_SETTINGS, ...before }) && !trackingOff({ ...DEFAULT_SETTINGS, ...after })) {

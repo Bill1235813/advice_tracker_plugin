@@ -15,6 +15,48 @@ version (one-click install) is in preparation; until then, follow the steps belo
 
 **How it works, in detail:** [`docs/advice-tracker-design.pdf`](docs/advice-tracker-design.pdf).
 
+## What's new in version 0.6.11 (v0.6 branch)
+
+- **Conversations from other devices are always found**, without an option to turn on: advice
+  conversations you have after joining in the sites' phone or desktop apps, or in another browser,
+  are asked about like those on the web. If you had not turned this on before the update, only what
+  you write from the update on is read, and the settings page opens once to say so.
+- **Past conversations: one click.** On the settings page, one box, "I agree: read my past
+  conversations", turns them on, next to the text it agrees to, and is saved at once (no separate
+  "I agree" box, no Save); another click turns them off. "Delete all data" turns past conversations
+  off; other devices are still read after it, from the deletion on.
+- **Up to 30 past conversations, per participant ID, counted by conversation.** A conversation
+  counts once, whichever of its messages was taken as the request (on another computer, or after
+  past conversations were turned off and on again), and is not asked about twice. If two computers
+  with the same participant ID find past conversations at the same time, the ones waiting on one
+  computer that would bring the total over 30 are removed once the other computer's annotations
+  are known (checked every hour), the ones found last first. One found while the 30th was annotated
+  elsewhere is not added, and one you answered No to no longer counts while it is being removed.
+- **A past annotation is not lost when Chrome quits while it is being sent:** your answers go into the
+  upload queue first and are sent from there (one left half done is finished at the next start). Before,
+  such an annotation was never sent, and its site's past conversations stopped being offered.
+- **"Yes" on a past conversation asks the study server again** which ones your participant ID annotated
+  (besides the hourly check), so another computer's annotations since then are counted before you
+  start; the one you are annotating is the last to be removed over the limit. If a past conversation
+  was removed while you were answering, the page now says your answers were not sent (it said "sent").
+- Half of an emoji (where a long reply read from a site was cut) is never sent: the study server
+  refused such an event every time, so it was retried every 30 minutes and never recorded. Replies are
+  cut on a whole character, and any other half character is replaced before sending.
+- Because every install now reads the sites, a message you send on the web right after messages the
+  web page did not see you send (in an older conversation you continue, or one from your phone) is
+  checked once that conversation was read from the site, as it already was when other devices were
+  turned on: usually within seconds, at most two minutes if the reading makes no progress. It no
+  longer waits at all when the site cannot be read now (reading stopped or paused there, switched off
+  by the study team, or this conversation failed to read).
+  A web advice conversation that goes quiet for a day ends a little later than before, usually within
+  minutes (it is first handed to the reading, in case it went on in an app).
+- Data notes: `consent` events are sent only for past conversations (`read_past`); the status
+  report's `read_apps` is always true. The consent text's version is `draft-2026-11-06`. A past
+  episode removed over the limit is counted as `past_over_limit`. For payment, count distinct
+  conversations per participant ID (a `past_annotation` fingerprint's part before the first "-"),
+  at most 30: a resend after a lost server answer can repeat an event, and two computers annotating
+  in the same minutes can still pass 30.
+
 ## What's new in version 0.6.10 (v0.6 branch)
 
 Fixes to 0.6.9's follow-up, found in two rounds of review:
@@ -339,12 +381,13 @@ days while a question waits.
 - **Only the messages you send while tracking is on are processed** (your participant ID is set,
   tracking is not paused, and the site is not excluded). Opening an old chat from the sidebar never
   sends anything; if you continue an old chat, only your new messages are checked. The one
-  exception is the optional reading of past and other-device conversations (next point).
-- **Past conversations and other devices (only if you turned them on, after agreeing on the
-  settings page):** the extension reads your conversation list and conversations through the
+  exception is the reading of other-device conversations, and of past ones if you turned that on
+  (next point).
+- **Other devices, and past conversations (only if you turned them on with one click on the settings
+  page):** the extension reads your conversation list and conversations through the
   site's own web interface, in this browser, while a page of the site is open, at most once a
-  minute. Past conversations go back up to 90 days before you joined; other-device conversations
-  are those after you joined that the web page did not see. Messages sent while tracking was paused,
+  minute. Other-device conversations are those after you joined that the web page did not see;
+  past conversations go back up to 90 days before you joined. Messages sent while tracking was paused,
   on an excluded site, on days the extension was not running, or before you last used "Delete all
   data" are never read (they do not even leave the chat page into the extension). On each site,
   only the account you were signed in with the first time is read, whether it is a personal one or a
@@ -355,7 +398,7 @@ days while a question waits.
   your answers about it (for a past one, the conversation is shown to you as it will be sent).
   The text of a conversation found but not answered stays on your computer at most 30 days. To keep
   a conversation out, pause tracking: turning the extension off does not keep out what you type
-  on your phone meanwhile. "Delete all data" also turns both options off.
+  on your phone meanwhile. "Delete all data" also turns past conversations off.
 - **To find advice conversations**, each message you send is checked by the study's own AI model,
   which runs on university computers (no commercial AI service sees your messages). For this
   check the extension sends your new message, your earlier messages in the same part of the
