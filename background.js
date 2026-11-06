@@ -942,9 +942,16 @@ function pageEnd(record, message) {
 async function onPanelShown(message, sender) {
   const record = await updateEpisode(message.id, (current) => ({ ...current, askedEnd: Math.max(current.askedEnd ?? 0, pageEnd(current, message)),
                                                                  panelTabs: [...new Set([...(current.panelTabs || []), sender.tab.id])] }));
-  // (a queued question shown in the extension's tab is its site's current one until it is answered)
+  // (a queued question shown in the extension's tab is its site's current one until it is answered; but the two
+  // pages each show their own kind, 0.6.9: a question of the other kind that the site still asks keeps its place)
   if (record && Modes.viaQueue(record)) {
-    await serialized(`qstate:${record.site}`, async () => save(`qstate:${record.site}`, { ...((await load(`qstate:${record.site}`)) || {}), current: record.id }));
+    const settings = await getSettings();
+    await serialized(`qstate:${record.site}`, async () => {
+      const queue = (await load(`qstate:${record.site}`)) || {};
+      const held = queue.current && queue.current !== record.id ? await load(`episode:${queue.current}`) : null;
+      if (held && (held.source === "past") !== (record.source === "past") && Modes.queueDue(held, Date.now(), settings.followupSeconds)) return;
+      await save(`qstate:${record.site}`, { ...queue, current: record.id });
+    });
   }
   await updateBadge();
 }
@@ -1208,7 +1215,7 @@ async function onFollowupAnswer(message, reply) {
 }
 
 // Every outcomesReminderDays while a follow-up question waits (lib/modes.js followupAsks): a notification that
-// opens the outcomes page, unless the participant had that page open since the last one.
+// opens the outcomes page, unless the participant had that page open within the last outcomesReminderDays.
 // NOTE: [edge case callout] as the heartbeat's, the alarm is created only when missing and timed from the
 // last check: created again at every browser start, it would never come for someone who closes Chrome daily
 const OUTCOMES_REMINDER_DAYS = STUDY_CONFIG.outcomesReminderDays ?? 2;
@@ -1221,12 +1228,12 @@ async function keepOutcomesAlarm() {
 
 async function remindOutcomes() {
   const settings = await getSettings(), now = Date.now(), end = await studyEnd();
-  const lastCheck = (await load("outcomesCheckedAt")) ?? now - OUTCOMES_REMINDER_DAYS * DAY_MS;
   await save("outcomesCheckedAt", now);
   if (!settings.participantId) return;
   const waiting = (await loadAll("episode:")).filter(([, record]) => Modes.followupAsks(Modes.followupStage(record, now, end))).length;
-  // (not when the participant opened the page since the last check)
-  if (!waiting || ((await load("outcomesSeenAt")) ?? 0) >= lastCheck) return;
+  // (not when the participant opened the page within the last period: also right after the last reminder, and
+  // not long ago when the alarm comes late, after Chrome was closed for days)
+  if (!waiting || now < ((await load("outcomesSeenAt")) ?? -Infinity) + OUTCOMES_REMINDER_DAYS * DAY_MS) return;
   // NOTE: [design thought] notifications never show conversation text (IRB protocol)
   chrome.notifications.create("outcomes", {
     type: "basic", iconUrl: "icons/icon128.png", title: "Advice Tracker: how did your decisions go?",
@@ -1405,6 +1412,7 @@ const LIVE_WAIT_MAX_MS = 15 * 60000;   // ... this long at most
 const WEB_WAIT_MS = 5 * 60000;         // ... and the walk this long for the web page to take the episode over
 const HISTORY_SUBMIT_GAP_MS = 15000, HISTORY_DAILY_MAX = 200, JUDGE_QUEUE_BUSY = 2;
 const INVITE_GAP_MS = 4 * 3600 * 1000, PAST_INVITES_A_DAY = 2, PAST_MISSES_MAX = 3, BUSY_PAGE_MS = 5 * 60000;    // (a day: any 24 hours)
+const PAST_ASK_RETRY_MINUTES = 10;     // GET /past not answered yet: asked again, and past turns wait, this long
 const historyOn = (settings) => Boolean(settings.readPast || settings.readApps);
 // Reading, judging and asking about conversations read from a site happen only while tracking is on
 // (participant ID set, not paused), the site is not excluded, and a switch is on.
@@ -1438,6 +1446,10 @@ async function historyWindows(host, settings) {
 async function historyTick() {
   const settings = await getSettings();
   if (!historyOn(settings) || trackingOff(settings) || !(await load("joinedAt"))) return;
+  // the past conversations this participant ID annotated on any install (checkPastAnnotated): asked again every
+  // hour while past conversations are read, and every few minutes until the study server answered once
+  const pastWait = (await load("pastAnnotated")) === undefined ? PAST_ASK_RETRY_MINUTES * 60000 : 3600 * 1000;
+  if (settings.readPast && Date.now() >= ((await load("pastAskedAt")) ?? 0) + pastWait) await checkPastAnnotated(settings);
   const busy = (await waitingTexts()).length > 0;
   if (busy) kickHistory();
   const config = (await load("hconfig")) || {};
@@ -1858,6 +1870,13 @@ async function settleHistory(key) {
         continue;
       }
     } else {
+      // NOTE: [edge case callout] how many past conversations may still be found is known only once the study
+      // server said which ones the participant ID annotated (checkPastAnnotated, asked by historyTick): until
+      // then a past turn waits, asked again in a few minutes, rather than being passed over for good
+      if (owner === "past" && !hist.pastFound && (hist.pastJudged || 0) < PAST_TURNS_JUDGED && (await load("pastAnnotated")) === undefined) {
+        chrome.alarms.create(`hjudge|${key}`, { delayInMinutes: PAST_ASK_RETRY_MINUTES });
+        return;
+      }
       const past = owner === "past" && !hist.pastFound && (hist.pastJudged || 0) < PAST_TURNS_JUDGED && (await pastLeft()) > 0;
       if (owner !== "app" && !past) {
         // a turn this walk does not judge: the search starts after it
@@ -2704,12 +2723,26 @@ async function checkJoined(settings) {
 // this install's own count stands).
 async function checkPastAnnotated(settings) {
   if (!settings.participantId) return;
+  await save("pastAskedAt", Date.now());
+  let annotated;
   try {
     const query = new URLSearchParams({ participant_id: settings.participantId });
     const response = await fetch(`${settings.serverUrl}/past?${query}`, { headers: { "X-Study-Key": settings.studyKey }, signal: AbortSignal.timeout(10000) });
     if (!response.ok && response.status !== 404) return;
-    await save("pastAnnotated", response.ok ? (await response.json()).annotated : []);
-  } catch (error) { /* offline: asked again at the next heartbeat or switch */ }
+    annotated = response.ok ? (await response.json()).annotated : [];
+  } catch (error) { return; }       // offline: asked again (historyTick, the next heartbeat or switch)
+  // NOTE: [edge case callout] an answer about a participant ID changed meanwhile is not this ID's list
+  if ((await getSettings()).participantId !== settings.participantId) return;
+  await save("pastAnnotated", annotated);
+  // a past conversation found here, not annotated yet, that this ID annotated elsewhere since: not asked about
+  for (const [, record] of await loadAll("episode:")) {
+    if (record.source !== "past" || record.answers || !annotated.includes(fingerprint(record))) continue;
+    await withdrawOffers(record.id);
+    await updateEpisode(record.id, (current) => (current.answers ? current : null));
+    await rememberDecided(record.id);
+    await count("past_annotated_elsewhere");
+  }
+  await updateBadge();
 }
 
 // The study server can switch reading off for a site without a new release (GET /config:

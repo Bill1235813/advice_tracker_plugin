@@ -26,12 +26,12 @@ let pageSettings = {};
 // how many questions wait in each site's queue (the page shows one at a time): for the "1 of N" line
 let queueCounts = {};
 
-// (each page counts its own kind: past conversations on the outcomes page, those from elsewhere on the quick one)
+// (each page counts its own kind: past conversations on the outcomes page, those from elsewhere on the quick one;
+// only the questions due now, lib/modes.js queueDue, as the queue asks them: not one answered with nothing new since)
 function countQueued(episodes, settings) {
-  const counts = {};
+  const counts = {}, now = Date.now();
   for (const episode of episodes) {
-    if (!Modes.viaQueue(episode) || ["done", "removed"].includes(episode.status) || (episode.source === "past" && episode.answers) ||
-        !queueKindOn(episode, settings) || (episode.source === "past") !== OUTCOMES) continue;
+    if (!Modes.queueDue(episode, now, Modes.followupSeconds(settings)) || !queueKindOn(episode, settings) || (episode.source === "past") !== OUTCOMES) continue;
     counts[episode.site] = (counts[episode.site] || 0) + 1;
   }
   return counts;
@@ -290,7 +290,8 @@ function recall(episode) {
 // again, or the outcome questions (checkinCard). `all`: the outcome questions whatever the stage (?checkin=all).
 // An answer goes to the background, which says what follows (lib/modes.js followupAnswer); the card is then
 // built again from the record.
-function followupCard(episode, episodes, settings, stored, all = false) {
+// `askWhen`: the participant just answered "Not yet" to "Did you act?" on this card: it asks when they plan to
+function followupCard(episode, episodes, settings, stored, all = false, askWhen = false) {
   const now = Date.now(), stage = all ? "outcome" : Modes.followupStage(episode, now, Modes.studyEnd(stored, STUDY_CONFIG.studyDays));
   if (stage === "outcome") return checkinCard(episode, episodes, settings, stored);
   const card = newCard(episode, "followup");
@@ -310,8 +311,9 @@ function followupCard(episode, episodes, settings, stored, all = false) {
     body = `<p class="meta">You plan to act on your decision by about ${day(checkin.nextAt)}. We will ask again then.</p>${buttons([["acted:yes", "I have acted on it now"]])}`;
   } else if (stage === "decided") {
     body = `<p><b>${Questions.escape(Questions.FOLLOWUP.decided)}</b></p>${buttons([["decided:no", "Not yet"], ["decided:yes", "Yes"]])}`;
-  } else if (decision.acted === "no") {
-    // "Not yet" to "did you act?": when they plan to
+  } else if (askWhen && decision.acted === "no") {
+    // "Not yet" to "did you act?" just now: when they plan to (on a page opened later, "Did you act?" again, as
+    // the pop-up asks it)
     body = `<p><b>${Questions.escape(Questions.FOLLOWUP.acted)}</b> Not yet.</p><p><b>${Questions.escape(Questions.FOLLOWUP.when)}</b></p>
       <select name="when">${Questions.ACT_WHEN.map(([value, label]) => `<option value="${value}">${Questions.escape(label)}</option>`).join("")}</select>
       ${buttons([["when:", "OK"]])}`;
@@ -331,7 +333,7 @@ function followupCard(episode, episodes, settings, stored, all = false) {
       const answer = step === "when" ? card.querySelector('select[name="when"]').value : chosen;
       card.dataset.busy = "yes";                 // (the storage listener leaves it to this answer)
       await chrome.runtime.sendMessage({ type: "followup_answer", id: episode.id, step, answer, where: "page" });
-      await rebuildFollowup(episode.id);
+      await rebuildFollowup(episode.id, step === "acted" && answer === "no");
     };
   }
   return card;
@@ -339,7 +341,7 @@ function followupCard(episode, episodes, settings, stored, all = false) {
 
 // The follow-up card of an episode built again from its record as stored now (after an answer here, or
 // one given in the pop-up meanwhile); a follow-up that is done or gone says so
-async function rebuildFollowup(id) {
+async function rebuildFollowup(id, askWhen = false) {
   const card = document.getElementById(`card-followup-${id}`);
   if (!card) return;
   const stored = await chrome.storage.local.get(null);
@@ -350,7 +352,7 @@ async function rebuildFollowup(id) {
   }
   const episodes = Object.entries(stored).filter(([name]) => name.startsWith("episode:")).map(([, record]) => record);
   episode.text = conversationGoes(episode, stored.settings || {});
-  card.replaceWith(followupCard(episode, episodes, stored.settings || {}, stored));
+  card.replaceWith(followupCard(episode, episodes, stored.settings || {}, stored, false, askWhen));
 }
 
 function checkinCard(episode, episodes, settings, stored) {

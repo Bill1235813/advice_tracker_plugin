@@ -493,14 +493,15 @@
       setTimeout(() => (state ? minimize(state) : host.remove()), 2500);
     };
     const clicked = async (name, value) => {
-      for (const button of byId("step").querySelectorAll("button")) button.disabled = true;      // (one answer per step)
       touched = true;
       byId("left").textContent = "";
+      // (the outcome step only opens the page, or minimizes: its buttons stay usable when the bar is opened again)
       if (name === "outcome") {
-        if (value === "open") { send({ type: "open_outcomes", id: item.id }); host.remove(); }
+        if (value === "open") { send({ type: "open_outcomes", id: item.id }); host.dismiss(); }
         else minimize("later: it waits on your Outcomes page");
         return;
       }
+      for (const button of byId("step").querySelectorAll("button")) button.disabled = true;      // (one answer per step)
       if (!chrome.runtime?.id) { byId("step").innerHTML = `<p class="done">${UPDATED}</p>`; return; }
       const answer = name === "when" ? byId("when").value : value;
       let reply = null;

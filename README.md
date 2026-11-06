@@ -17,20 +17,24 @@ version (one-click install) is in preparation; until then, follow the steps belo
 
 ## What's new in version 0.6.10 (v0.6 branch)
 
-Fixes to 0.6.9's follow-up, found in a review:
-- On the day you planned to act, the Outcomes page asks again **"Did you act on this decision yet?"**
-  (0.6.9 asked only when you plan to act, so you could not say you had).
+Fixes to 0.6.9's follow-up, found in two rounds of review:
+- **"Did you act on this decision yet?"** is asked again on the day you planned to act, and whenever
+  it comes up again, on the Outcomes page as in the pop-up (0.6.9's page asked only when you plan to
+  act, so you could not say you had). "When do you plan to act?" follows right after "Not yet".
 - A minimized follow-up bar no longer keeps later follow-up questions off its tab (the chat sites do
-  not reload when you switch conversations).
+  not reload when you switch conversations); after "Later", the bar opened again still works.
 - The follow-up's buttons take one answer each (a double click no longer answers twice, or the next
   question too).
 - A check-in from before 0.6.9 shows its date on the Outcomes page (it said "Invalid Date").
 - Each page shows its own waiting conversation per site: past ones on the Outcomes page, those from
-  other devices on the quick check-ins page (0.6.9 could show neither when the site's turn was the other kind).
-- The Outcomes reminder does not come when you opened the page since the last one.
+  other devices on the quick check-ins page; opening one page does not change the question the chat
+  page asks about the other kind; "1/N awaiting labeling" counts only those that wait for an answer.
+- The Outcomes reminder does not come when you opened the page in the last two days (a reminder you
+  clicked included); it does when the visit was longer ago, also after Chrome was closed for days.
 - Past conversations: one you annotated on an earlier install or another computer is not asked about
-  again; none is looked for until the study server said which ones your participant ID annotated (also
-  among the conversations read for other devices); changing the participant ID asks the server again.
+  again (also one already found here: the list is asked for every hour while past conversations are
+  read); past turns wait until the study server said which ones your participant ID annotated (also in
+  conversations read for other devices), and are then judged; changing the participant ID asks again.
 - ChatGPT: the reply to a prompt ChatGPT sent for you is not read also when your message before it got
   only a picture as its answer.
 - Your one-sentence description of a conversation stays off the pages of other chat sites, also when the
