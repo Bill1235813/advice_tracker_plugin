@@ -15,6 +15,15 @@ version (one-click install) is in preparation; until then, follow the steps belo
 
 **How it works, in detail:** [`docs/advice-tracker-design.pdf`](docs/advice-tracker-design.pdf).
 
+## What's new in version 0.6.12 (v0.6 branch, unreleased)
+
+- **A conversation you label "No" is sent with that label.** Until now a No deleted the
+  conversation and sent only the fact; now the part the model took for advice goes with the No,
+  redacted exactly as it would go with your answers, from the message taken as the request on (a
+  past one too; a skipped past conversation still sends nothing). The study team can then see what
+  the advice model took for advice and participants did not. The settings-page consent text says
+  so; **the consent form and privacy policy must say so too before this ships.**
+
 ## What's new in version 0.6.11 (v0.6 branch)
 
 - **Conversations from other devices are always found**, without an option to turn on: advice
@@ -248,8 +257,8 @@ Fixes to 0.6.9's follow-up, found in two rounds of review:
   or delete them.
 - **Nothing is captured** before you enter your participant ID, while tracking is paused, or on a
   site you excluded; messages you send then are never processed, not even later. If tracking stays
-  paused for 5 days, a Chrome notification reminds you, with a "Resume tracking" button; it comes
-  again every 5 days while paused.
+  paused for a day, a Chrome notification reminds you, with a "Resume tracking" button; it comes
+  again every day while paused.
 - **No skipping.** The questions panel has no ✕ until you have answered once; you can still put it
   off with "later (1 h)", or answer "No" if you did not ask for advice (this removes the
   conversation from the study).
@@ -409,11 +418,15 @@ days while a question waits.
   `[file: its name]`; the extension never reads what is inside them.
 - On your computer, a conversation's text is kept only while it is being checked; for an advice
   conversation you answer questions about, until you answer its outcome questions. Conversations
-  that are not advice, or that you mark as not advice, are deleted, and their text is never sent.
+  the study's model finds not to be advice are deleted, and their text is never sent.
 - Your answers are sent when you press Submit, together with the advice conversation they are
   about (your messages and the AI's replies, from your message that asked for advice on; earlier
   messages of the chat are not sent); the complete conversation is sent once more when it ends (if
   tracking is paused then, once it is on again; never if you exclude the site).
+- When you answer **No** (not advice), that part of the conversation is sent with your No in the
+  same way (from the message the model took for an advice request on, with personal details
+  removed), so the study team can see what the model got wrong; the conversation is then deleted
+  from your computer. A past conversation you **Skip** is deleted and its text is not sent.
   Names, e-mail addresses, phone numbers, web and street addresses, long numbers and similar
   details are replaced with placeholders such as `[NAME]` on your computer before anything is sent;
   add the names that matter most to you in the settings.
@@ -497,7 +510,10 @@ e-mail.
   opening turn, when an answered episode ends, or when tracking is on again if it ended while
   tracking was off), `checkin` (for an episode from 0.4 also the conversation as reviewed
   there, `transcript` and `transcript_edited`, as 0.4 sent it), `prompt`, `not_advice`
-  (`had_answers`: answers sent before belong to a removed episode), `heartbeat` and `status` (tracking status: `tracking`, `paused`,
+  (`had_answers`: answers sent before belong to a removed episode; since 0.6.12 also the redacted
+  `transcript` from the opening turn through the episode's last turn, as `episode_rating` sends it,
+  with the `redacted` counts, and for a past one its `fingerprint` and `opened_at`; `null` where the
+  text stays, as with answers), `heartbeat` and `status` (tracking status: `tracking`, `paused`,
   `paused_at`, `listening_sites`, `excluded_sites`, `sites_without_access`, `read_past`,
   `read_apps`; the heartbeat also `history` (per site: ok, not_yet, waiting, signed_out,
   other_account, blocked, unsupported), `waiting_past`, `joined_at`, `joined_estimated`,

@@ -1275,14 +1275,24 @@ async function removeEpisode(id) {
 }
 
 async function onNotAdvice(message) {
+  const settings = await getSettings();
+  // NOTE: [design thought] a conversation the participant labeled, Yes or No, goes to the study with
+  // its label: the "No" takes the conversation too (from the turn taken as the advice request on,
+  // redacted as with answers), so the study sees what the advice model took for advice and the
+  // participant did not. Read before the record goes: an open web episode's text is its chat's
+  // snapshot, which settling drops once the episode is removed. The same rules as with answers
+  // apply: nothing of an excluded site, or of an episode whose text stays (lib/questions.js).
+  const before = await load(`episode:${message.id}`);
+  const conversation = before && before.status !== "removed" ? await transcript(before, before.end, settings) : null;
   const gone = await removeEpisode(message.id);
   if (!gone) return;
   await serialized("queue", async () => save("queue", ((await load("queue")) || []).filter((event) => event.payload.episode !== gone.id)));
   await count("not_advice");
-  // counts only: no text, no answers
   await upload("not_advice", { episode: gone.id, site: gone.site, source: gone.source ?? "web", mode: gone.mode, turns: gone.end - gone.start + 1,
                                opening_turn: gone.opening - gone.start + 1, open: gone.status === "open",
-                               closed_by: gone.closedBy, had_answers: Boolean(gone.answers) }, await getSettings());
+                               closed_by: gone.closedBy, had_answers: Boolean(gone.answers),
+                               ...(gone.source === "past" ? { fingerprint: fingerprint(gone), opened_at: gone.openedAt } : {}),
+                               transcript: conversation?.messages ?? null, redacted: conversation?.counts ?? null }, settings);
 }
 
 // ✕ on a page of an episode that has answers: they stand as they are. On the final page this

@@ -40,7 +40,7 @@
 <textarea id="excludedHosts" rows="3"></textarea>
 <label>Names to remove from conversations before they are sent <span class="help">(one per line: your name, family, employer)</span></label>
 <textarea id="redactNames" rows="3"></textarea>
-<label><input type="checkbox" id="paused"> Pause tracking <span class="help">(the study team sees when tracking is paused; a reminder comes after 5 days)</span></label>
+<label><input type="checkbox" id="paused"> Pause tracking <span class="help">(the study team sees when tracking is paused; a reminder comes every day)</span></label>
 <section id="history">
   <h2>Past conversations and other devices</h2>
   <p class="draft">DRAFT wording: to be replaced with the IRB-approved consent text before release.</p>
@@ -57,7 +57,7 @@
       minutes. Answering No or Skip is always fine and never affects your participation or your base payment.</li>
   </ul>
   <p>Your messages are checked by the study's own AI model, with names and other personal details removed first; it keeps only a
-    yes or no. A conversation's text is sent to the study only together with your answers about it, with personal details removed.
+    yes or no. A conversation's text is sent to the study only together with your answers about it, or with your No when you answer that it was not advice (so the study can see what its model got wrong), in both cases with personal details removed.
     Messages sent while tracking was paused, on a site you excluded, on days the extension was not running, or before you last used
     "Delete all data", are never read. To keep a conversation out, pause tracking (turning the extension off does not keep out what
     you type on your phone meanwhile). On each site, only the account you are signed in with the first time is read, whether it is a

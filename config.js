@@ -18,7 +18,7 @@ STUDY_CONFIG.pastLimit = 30;
 STUDY_CONFIG.pastReward = "$2";
 // A participant who leaves tracking paused gets a Chrome notification after this many days, and again
 // after as many more while it stays paused (clicking "Resume tracking" on it resumes).
-STUDY_CONFIG.pausedReminderDays = 5;
+STUDY_CONFIG.pausedReminderDays = 1;
 // The study period (consent form: the study lasts five weeks, three of tracking and two for the last
 // follow-ups), from when the participant joined: a decision they plan to act on within it is asked about
 // again then, one after it goes to its outcome questions at once, and on its last day every follow-up
