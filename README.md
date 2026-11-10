@@ -14,20 +14,6 @@ not advice, that part of the conversation is sent with your No, in the same way.
 This folder is the extension itself, so it can be loaded straight into Chrome. A Chrome Web Store
 version (one-click install) is in preparation; until then, follow the steps below.
 
-**How it works, in detail:** [`docs/advice-tracker-design.pdf`](docs/advice-tracker-design.pdf).
-
-## What's new in version 0.6.12
-
-- Your **Participant ID is your Prolific ID**.
-- An advice conversation now lasts until you change the topic, or until a week after you first
-  asked (a day without activity no longer ends it).
-- **Send feedback on the study**, under the extension icon, sends the study team anything you want
-  them to know.
-- When you answer **No** (not advice), that part of the conversation is sent with your No, with
-  personal details removed, so the study can see what its model got wrong.
-
-Earlier versions, and the details: [CHANGELOG.md](CHANGELOG.md).
-
 ## What you need
 
 - Google Chrome on a computer or laptop (version 121 or newer, from January 2024; Edge and Brave also work).
@@ -37,7 +23,7 @@ Earlier versions, and the details: [CHANGELOG.md](CHANGELOG.md).
 ## Install (about two minutes)
 
 1. **Get the code.** On this page click the green **Code** button → **Download ZIP**, then
-   unzip it. You get a folder named `advice_tracker_plugin-main` (`-dev` for the dev branch)
+   unzip it. You get a folder named `advice_tracker_plugin-main`
    containing `manifest.json`.
    Keep this folder somewhere permanent (Documents, not Downloads): Chrome loads the
    extension from it every time it starts.
@@ -185,70 +171,3 @@ Full privacy policy: the link in the study e-mail.
 - **Uninstall / withdraw**: `chrome://extensions` → **Remove** on the card. To also wipe the local
   data first: Options → *Delete all data on this computer*. Tell the study team if you want your
   submitted data deleted as well.
-
-## For reviewers and developers
-
-- `manifest.json` (Manifest V3, version 0.6.12): permissions `storage`, `unlimitedStorage` (no
-  install warning), `alarms`, `notifications`, and host permissions for the five chat sites (plus
-  `localhost` for the mock test page); no remote code.
-- Past and other-device conversations (0.6; past ones opt-in, other devices always read since
-  0.6.11): `content/history.js` answers the worker's
-  requests with the site's reader (`lib/history/<site>.js`: the conversation list and one
-  conversation, through the site's own read-only API); `lib/history.js` sorts each turn by who sent
-  it (web, past, app, off) and drops the text of turns that may not be read before it leaves the
-  page; `background.js` walks each conversation with the same judges, hands open episodes between
-  the web page and the walk, and asks through one queue per site (`lib/modes.js` `viaQueue`,
-  `queueItem`): a text-free invitation on the site's page, the questions in `ui/checkin.html?item=` (a
-  past one in `ui/outcomes.html?item=`, 0.6.9).
-- `content/capture.js` reads the conversation from the page (per site, `lib/sites.js` names the
-  message elements, the parts that hold their text, and the noise inside them: thinking blocks,
-  screen-reader labels, buttons) and notes which user messages were sent there; `background.js`
-  judges each new message through the study server, one at a time,
-  following the state machine in `lib/episodes.js`, and shows `content/rating_panel.js` (or its small
-  update and confirm pop-ups) when the rating mode in `lib/modes.js` says so; `lib/redact.js` removes
-  personal details from everything sent; `ui/checkin.html` holds pending questions (the quick
-  check-ins) and `ui/outcomes.html` the follow-ups and past conversations (one script for both,
-  `ui/checkin.js`); `lib/modes.js` `followupStage` and `followupAnswer` are the follow-up's rules
-  (0.6.9); `lib/questions.js` has every question (all required); `config.js` holds the server URL
-  and study key, and the servers used before (an update moves an install that still has one of
-  them to the current server). The settings page hides the research team's settings (the server
-  and key, the follow-up time, the quiet time) since 0.6.12: `options/options.html?advanced`
-  shows them, for a test.
-- Uploads (`POST /events`; the episode events carry `source`: web, app or past; an answer to a
-  question that does not apply is `null`, e.g. `outcome` when `too_early` is ticked, `feel_better`
-  unless `followed` is `fully` or `partly`):
-  - `episode_rating`: answers + the redacted transcript from the opening turn through the answered one.
-  - `episode_transcript`: the complete redacted transcript from the opening turn, when an answered
-    episode ends (or when tracking is on again, if it ended while tracking was off), with
-    `answer_versions` and `final_due` (false when a change of topic or the cut closes an answered
-    episode with nothing new since the answers: the last `episode_rating` stands as the final one).
-  - `not_advice`: the participant's No (`had_answers`: answers sent before belong to a removed
-    episode), with the redacted `transcript` from the opening turn through the episode's last turn,
-    as `episode_rating` sends it, and the `redacted` counts (`null` where the text stays, as with
-    answers); a past one also its `fingerprint` and `opened_at`.
-  - `checkin`: the outcome answers, with `followup` (`ask_from`, `due_at`, `shown`, and the answers
-    with their times: `decided`, `decidedAt`, `acted`, `actedAt`, `actWhen`, `plannedAt`); for an
-    episode from 0.4 also the conversation as reviewed there (`transcript`, `transcript_edited`).
-  - `followup`: each answer to the follow-up's questions (`step` decided, acted or when, `answer`,
-    `where` popup or page, the `stage` after it, `days_since_request`, `next_at`, `planned_at`,
-    `shown`, `study_end`; no text).
-  - `past_annotation` (answers + the redacted transcript of a past conversation, with a
-    `fingerprint` to pay each once), `past_skipped`, and `consent` (`feature`, `accepted`, `version`).
-  - `prompt`: a question shown (kinds include `invite` and `card`); it can end `withdrawn` (the pop-up
-    or invitation was taken away because the participant answered the same question elsewhere).
-  - `heartbeat` (twice a day) and `status` (on a change): `tracking`, `paused`, `paused_at`,
-    `listening_sites`, `excluded_sites`, `sites_without_access`, `read_past`, `read_apps`; the
-    heartbeat also the extension's `version`, `history` (per site: ok, not_yet, waiting, signed_out,
-    other_account, blocked, unsupported), `waiting_past`, `joined_at`, `joined_estimated`,
-    `install_id`, `followup_stages` and counts (among them `feedback`, `upload_rejected`,
-    `upload_rejected_<type>`).
-  - `feedback`: what the participant typed under the extension icon (`text`, redacted on the
-    computer), the `redacted` counts and the extension's `version`.
-- The extension also asks `GET /past?participant_id=` for the fingerprints of the past conversations
-  the participant ID annotated, on any install, and `GET /config`, whose `{history: {"<site>": false}}`
-  stops reading a site. On removal Chrome opens `<server>/uninstalled?participant_id=...&key=...`,
-  which the study server must answer (it records an `uninstalled` event). Each version's changes to
-  these: [CHANGELOG.md](CHANGELOG.md).
-- The design document is in `docs/`. The study server, the GPU worker, the tests (unit tests, a
-  headless-browser end-to-end test, a smoke test) and the Web Store package live in the
-  `plugin/` folder of the main research project.
