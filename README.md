@@ -4,8 +4,8 @@ A Chrome extension used in a university research study on how people ask AI chat
 (ChatGPT, Claude, Gemini, Grok, Perplexity) for advice about their own lives, and what happens
 afterwards. When part of a conversation looks like you asked the AI for advice about your own
 situation, the extension asks whether you really asked for advice, and then a few questions about
-the advice (about 5 to 10 minutes; when it asks is explained below). From a week later it asks
-whether you made a decision and acted on it, and then how things went. Your answers stay on your
+the advice (about 1 to 2 minutes; when it asks is explained below). From a week later it asks
+whether you made a decision and acted on it, and then how things went (about 4 to 8 minutes). Your answers stay on your
 computer until you press **Submit**; they are then sent together with that advice conversation (your
 messages and the AI's replies, from your message that asked for advice on), after names, e-mail
 addresses, phone numbers and similar details were removed on your computer. If you answer that it was
