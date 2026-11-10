@@ -40,7 +40,7 @@ const DEFAULT_SETTINGS = {
   participantId: "", serverUrl: STUDY_CONFIG.serverUrl, studyKey: STUDY_CONFIG.studyKey, paused: false, pausedAt: null,
   ratingMode: STUDY_CONFIG.ratingMode || "combined",      // "frequent" | "switching" | "periodical" | "combined"
   followupSeconds: 7 * 24 * 3600,    // the follow-up begins this long after an episode's first request (the settings page can shorten it for a test)
-  endQuietMinutes: 24 * 60,    // an episode also ends after this long without activity in its chat
+  endQuietMinutes: 7 * 24 * 60,  // an episode also ends after this long without activity in its chat (a day before 0.6.12)
   cutDays: 7,                  // ... and is complete this many days after its first request (as at a change of topic)
   pauseMinutes: 3,            // periodical, combined: a pause is this long without typing in the episode's chat
   updateSeconds: 30,           // the update and confirm pop-ups disappear after this long
@@ -2482,12 +2482,12 @@ async function studyClock() {
 // ---------------- uploads ----------------
 // NOTE: [edge case callout] nothing goes without a participant ID (the study server could not tie it to
 // anyone): an event made then (a check-in answered after the ID was cleared on the settings page) waits
-// in the queue, and goes with the ID once one is saved (flushQueue)
+// in the queue, and goes with the ID once one is saved (flushQueue). Returns whether the event went now.
 async function upload(type, payload, settings) {
   const started = generation;
   let event = { type, participant_id: settings.participantId, sent_at: Date.now(), payload };
   const outcome = settings.participantId ? await post(event, settings) : "failed";
-  if (outcome === "sent") return;
+  if (outcome === "sent") return true;
   if (outcome === "rejected") event = { ...event, rejections: 1 };
   await serialized("queue", async () => {
     const queue = (await load("queue")) || [];
@@ -2500,6 +2500,7 @@ async function upload(type, payload, settings) {
     await save("queue", [...queue, event]);
     chrome.alarms.create("flush", { delayInMinutes: 30 });
   });
+  return false;
 }
 
 // NOTE: [design thought] the server refused the event itself (400 bad request, 413 too large, 422 not
@@ -2872,6 +2873,16 @@ async function onHeld(message) {
   if (message.send) { await flushQueue(); await sendWaitingTranscripts(); }
 }
 
+// Feedback on the study, typed in the popup (0.6.12): free text, redacted on this computer as a free-text
+// answer is (names on the participant's list, e-mail addresses, phone numbers, ...) and sent with the
+// extension's version. Says whether it went now; else it waits in the queue (offline, or no participant ID yet).
+async function onFeedback(message) {
+  const settings = await getSettings();
+  const { text, counts } = Redact.redact(message.text, settings.redactNames);
+  await count("feedback");
+  return upload("feedback", { text, redacted: counts, version: chrome.runtime.getManifest().version }, settings);
+}
+
 // "Delete all data on this computer" (settings page): everything but the settings, and every
 // timer. Judging loops that were running stop writing (the generation changed), snapshots taken
 // before now are ignored, and open chat pages forget which of their turns were sent.
@@ -2949,6 +2960,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
   if (message.type === "followup_answer") {
     onFollowupAnswer(message, sendResponse);
+    return true;
+  }
+  // (the popup says whether the feedback went now or waits: onFeedback)
+  if (message.type === "feedback") {
+    onFeedback(message).then((sent) => sendResponse({ sent }));
     return true;
   }
   // (the page thanks the participant only for answers taken: onPastSubmitted)
@@ -3064,9 +3080,14 @@ async function keepHistoryAlarm() {
 
 chrome.runtime.onInstalled.addListener(async (details) => {
   const settings = await getSettings();
-  // NOTE: [edge case callout] before 0.4 an episode ended after 10 quiet minutes; episodes now
-  // last until the topic changes or a day goes by, so the old default is replaced
-  if (details.reason === "update" && settings.endQuietMinutes === 10) settings.endQuietMinutes = DEFAULT_SETTINGS.endQuietMinutes;
+  // NOTE: [edge case callout] before 0.4 an episode ended after 10 quiet minutes, and before 0.6.12 after a quiet
+  // day; it now lasts until the topic changes or a week goes by. An install updated from an earlier version that
+  // still has an old default saved (every Save on the settings page writes it) moves to the new one, while a time
+  // typed on the settings page (a test) stays.
+  if (details.reason === "update" && (settings.endQuietMinutes === 10 ||
+      (/^0\.([0-5]\.|6\.([0-9]|1[01])$)/.test(details.previousVersion || "") && settings.endQuietMinutes === 24 * 60))) {
+    settings.endQuietMinutes = DEFAULT_SETTINGS.endQuietMinutes;
+  }
   // NOTE: [edge case callout] an install saves the server address with its settings, so an update keeps
   // it: one that still has a study server used before moves to the current one (0.6.5), while an
   // address typed on the settings page (a test server, say) stays

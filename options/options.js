@@ -1,5 +1,12 @@
 const FIELDS = ["participantId", "serverUrl", "studyKey", "endQuietMinutes"];
-const DEFAULTS = { followupSeconds: 7 * 24 * 3600, endQuietMinutes: 24 * 60, ratingMode: STUDY_CONFIG.ratingMode || "combined" };
+const DEFAULTS = { followupSeconds: 7 * 24 * 3600, endQuietMinutes: 7 * 24 * 60, ratingMode: STUDY_CONFIG.ratingMode || "combined" };
+
+// NOTE: [design thought] the research team's settings (the study server and key, the follow-up and quiet times)
+// are hidden from participants (0.6.12): their values still load and save with the rest. The team opens
+// options.html?advanced to see and change them for a test.
+const forTeam = new URLSearchParams(location.search).has("advanced");
+document.getElementById("advanced").hidden = !forTeam;
+document.getElementById("advanced").open = forTeam;
 
 async function load() {
   const { settings = {} } = await chrome.storage.local.get("settings");
@@ -62,7 +69,7 @@ document.getElementById("save").onclick = async () => {
   const quietField = document.getElementById("endQuietMinutes").value.trim();
   const endQuietMinutes = quietField === "" ? DEFAULTS.endQuietMinutes : Math.round(Number(quietField));
   if (!(endQuietMinutes >= 1 && endQuietMinutes <= 10080)) {
-    alert("Please enter the minutes without activity as a whole number from 1 to 10080 (1440 = one day).");
+    alert("Please enter the minutes without activity as a whole number from 1 to 10080 (10080 = 7 days).");
     return;
   }
   // since when tracking is paused (the heartbeat reports it): kept while it stays paused

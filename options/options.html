@@ -17,7 +17,7 @@
 </style>
 <h1>Advice Tracker settings</h1>
 <p class="help">The study is about asking an AI assistant for advice on your own life. <a href="../ui/checkin.html#advice" target="_blank">What counts as advice?</a></p>
-<label>Participant ID <span class="help">(your study code from the onboarding survey, e.g. AT-1234-5678-9012)</span></label>
+<label>Participant ID <span class="help">(your Prolific ID)</span></label>
 <input type="text" id="participantId">
 <label>When to ask about an advice conversation <span class="help">(set by the research team; a conversation already under way keeps the mode it started with)</span></label>
 <div id="rating-mode">
@@ -26,16 +26,17 @@
   <label><input type="radio" name="ratingMode" value="periodical"> <b>Periodical</b>: <span class="help">rate at the first 3-minute pause in the conversation; later pauses offer an update if you wrote more since your answers</span></label>
   <label><input type="radio" name="ratingMode" value="combined"> <b>Combined</b>: <span class="help">right after the first advice message, only "Did you ask for advice here?"; rate at the first 3-minute pause, move to another conversation or change of topic, whichever comes first; later pauses and moves offer an update, and a change of topic asks for the final answers, each only if you wrote more since your answers</span></label>
 </div>
-<details><summary>Advanced (pre-filled by the research team; do not change unless asked)</summary>
+<!-- the research team's settings, hidden from participants since 0.6.12: options.html?advanced shows them (options.js) -->
+<details id="advanced" hidden><summary>Advanced (for the research team; do not change unless asked)</summary>
 <label>Study server URL</label>
 <input type="text" id="serverUrl">
 <label>Study key</label>
 <input type="text" id="studyKey">
-</details>
 <label>Seconds until the follow-up questions begin <span class="help">(604800 = 7 days, the study's setting; a shorter time is for testing only. It counts from the advice request, for conversations first answered after you save; a past conversation is also asked about this long after its request)</span></label>
 <input type="number" id="followupSeconds" min="1" step="1">
-<label>Minutes without activity after which an advice conversation counts as finished <span class="help">(1440 = one day; a change of topic always ends it, and so does a week after your first advice request)</span></label>
+<label>Minutes without activity after which an advice conversation counts as finished <span class="help">(10080 = 7 days, the study's setting; a change of topic always ends it, and so does a week after the first advice request)</span></label>
 <input type="number" id="endQuietMinutes" min="1" max="10080">
+</details>
 <label>Never capture on these sites <span class="help">(one hostname per line, e.g. claude.ai; the study team sees which sites are excluded)</span></label>
 <textarea id="excludedHosts" rows="3"></textarea>
 <label>Names to remove from conversations before they are sent <span class="help">(one per line: your name, family, employer)</span></label>

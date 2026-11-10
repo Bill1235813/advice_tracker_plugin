@@ -8,6 +8,8 @@
   button { width: 100%; margin-top: 6px; padding: 6px; border-radius: 6px; border: 1px solid #d9d9d3; background: #f1f1ec; font: inherit; cursor: pointer; }
   button.primary { background: #4f5bd5; color: #fff; border-color: #4f5bd5; }
   pre { max-height: 160px; overflow: auto; background: #f3f4fb; padding: 6px; font-size: 11px; white-space: pre-wrap; }
+  textarea { width: 100%; box-sizing: border-box; margin-top: 6px; padding: 6px; border: 1px solid #d9d9d3; border-radius: 6px; font: inherit; resize: vertical; }
+  .note { color: #647084; font-size: 12px; margin-top: 4px; }
 </style>
 <h1>Advice Tracker</h1>
 <div id="status"></div>
@@ -21,6 +23,14 @@
 <button class="primary" id="open-outcomes">Outcomes (follow-ups, past conversations)</button>
 <button id="pause">Pause tracking</button>
 <button id="debug">Show captured messages on this tab</button>
+<button id="feedback">Send feedback on the study</button>
+<div id="feedback-box" hidden>
+  <textarea id="feedback-text" rows="5" maxlength="5000" placeholder="Anything you want the study team to know: what worked, what did not, a question..."></textarea>
+  <div class="note">Sent to the study team with your participant ID. Names on your settings list, e-mail addresses, phone
+    numbers and similar details are removed first.</div>
+  <button class="primary" id="feedback-send">Send</button>
+  <div class="note" id="feedback-status"></div>
+</div>
 <button id="options">Settings</button>
 <pre id="debug-out" hidden></pre>
 <script src="../config.js"></script>

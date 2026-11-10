@@ -71,4 +71,37 @@ document.getElementById("debug").onclick = async () => {
     out.textContent = "This tab is not a supported chat site (or the page has not finished loading).";
   }
 };
+
+// Feedback on the study (0.6.12), in the participant's own words: the background redacts it, as every text, and
+// sends it (background.js onFeedback).
+// NOTE: [design thought] a click outside closes the popup, so the draft is kept while the browser runs
+// (chrome.storage.session, in memory only; "Delete all data" clears it too) and comes back when it reopens
+const feedbackBox = document.getElementById("feedback-box"), feedbackText = document.getElementById("feedback-text");
+const feedbackSend = document.getElementById("feedback-send"), feedbackStatus = document.getElementById("feedback-status");
+document.getElementById("feedback").onclick = () => {
+  feedbackBox.hidden = !feedbackBox.hidden;
+  if (!feedbackBox.hidden) feedbackText.focus();
+};
+feedbackText.oninput = () => chrome.storage.session.set({ feedbackDraft: feedbackText.value });
+feedbackSend.onclick = async () => {
+  const text = feedbackText.value.trim();
+  if (!text) {
+    feedbackStatus.textContent = "Please write your feedback first.";
+    return;
+  }
+  feedbackSend.disabled = true;               // (one feedback per click, even on a double click)
+  const reply = await chrome.runtime.sendMessage({ type: "feedback", text });
+  const { settings = {} } = await chrome.storage.local.get("settings");
+  feedbackText.value = "";
+  await chrome.storage.session.remove("feedbackDraft");
+  feedbackSend.disabled = false;
+  feedbackStatus.textContent = reply?.sent ? "Thank you: sent to the study team."
+    : settings.participantId ? "Thank you: it will be sent as soon as the study server can be reached."
+    : "Thank you: it will be sent once you save your participant ID in Settings.";
+};
+chrome.storage.session.get("feedbackDraft").then(({ feedbackDraft }) => {
+  if (!feedbackDraft) return;
+  feedbackText.value = feedbackDraft;
+  feedbackBox.hidden = false;
+});
 refresh();
