@@ -24,6 +24,9 @@ the *Data notes* for the study team. How to install and use it: [README.md](READ
   redacted exactly as it would go with your answers, from the message taken as the request on (a
   past one too; a skipped past conversation still sends nothing). The study team can then see what
   the advice model took for advice and participants did not. The settings page says so.
+- **The settings page's consent text is the release wording**: no DRAFT note and no note for the
+  study team on it. Data notes: `consent` events carry the text's version `2026-11-10` (was
+  `draft-2026-11-06`, which 0dc9464's added sentence about a No had kept).
 
 ## 0.6.11
 
