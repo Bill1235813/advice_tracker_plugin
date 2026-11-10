@@ -200,7 +200,7 @@
             ${Questions.render(questions)}
             <div class="actions"><button class="primary" id="submit">${answered ? "Save" : "Submit"}</button></div>
           </div>
-          <div class="note">${answered ? "Your earlier answers are filled in." : `About 5 to 10 minutes now, and a few follow-up questions from about ${Questions.duration(settings.followupSeconds)} after you first asked.`}
+          <div class="note">${answered ? "Your earlier answers are filled in." : `About 1 to 2 minutes now, and a few follow-up questions from about ${Questions.duration(settings.followupSeconds)} after you first asked.`}
             ${Questions.escape(Questions.CONVERSATION_NOTES[episode.text] || Questions.CONVERSATION_NOTES.with_answers)}</div>
         </div>
       </div>`;
@@ -349,7 +349,7 @@
   // ratings page with the conversation as it is now and the earlier answers filled in.
   function offerUpdate(episode, settings) {
     const question = episode.answered ? "Your advice conversation continued. Update your ratings?"
-                                      : "Rate this advice conversation now? (about 5 to 10 minutes)";
+                                      : "Rate this advice conversation now? (about 1 to 2 minutes)";
     const html = `${Questions.escape(question)} <a href="#" id="whatis" class="whatis">what counts as advice?</a>`;
     return popup(episode, settings, html, "offer_update", "update_answer", async () => {
       const fresh = await latest(episode);
@@ -385,7 +385,7 @@
     if (invite.source === "past") {
       html = `Advice Tracker found a conversation on ${site} from ${date}, before you joined the study, that may have been a request for advice.` +
              ' <a href="#" id="whatis" class="whatis">what counts as advice?</a>' +
-             `<br><b>You can earn ${Questions.escape(invite.reward)} for each past conversation you annotate</b> (up to ${invite.pastLimit}; about 5-10 minutes).` +
+             `<br><b>You can earn ${Questions.escape(invite.reward)} for each past conversation you annotate</b> (up to ${invite.pastLimit}; about 4 to 8 minutes each).` +
              '<div class="left">Answer No or Skip if it was not advice: that is fine, and never affects your participation.' +
              ' <a href="#" id="stop">Stop asking about past conversations</a></div>';
     } else if (invite.stage === "final") {
@@ -396,7 +396,7 @@
     } else {
       html = `Advice Tracker found a conversation on ${site} from ${date} that was not recorded as it happened (for example on your phone ` +
              'or another device). It may have been a request for advice. <a href="#" id="whatis" class="whatis">what counts as advice?</a> ' +
-             "Answer a few questions (about 5-10 minutes)?";
+             "Answer a few questions (about 1 to 2 minutes)?";
     }
     return popup({ id: invite.id }, settings, `${html}<div class="left">It opens in a separate tab.</div>`, "offer_invite", "invite_answer", () => {},
                  { no: "Not now", yes: "Open", answers: { no: "later", yes: "open" } });
@@ -476,7 +476,7 @@
         step.innerHTML = `<b>${escape(Questions.FOLLOWUP.when)}</b><select id="when">${Questions.ACT_WHEN.map(([value, label]) =>
           `<option value="${value}">${escape(label)}</option>`).join("")}</select>${buttons([["ok", "OK"]])}`;
       } else if (name === "outcome") {
-        step.innerHTML = `<b>A few questions about how it turned out are ready</b> (about 5 minutes).${buttons([["later", "Later"], ["open", "Open the Outcomes page"]])}`;
+        step.innerHTML = `<b>A few questions about how it turned out are ready</b> (about 4 to 8 minutes).${buttons([["later", "Later"], ["open", "Open the Outcomes page"]])}`;
       } else {
         step.innerHTML = `<b>${escape(Questions.FOLLOWUP[name])}</b>${buttons([["no", "Not yet"], ["yes", "Yes"]])}`;
       }

@@ -3,6 +3,15 @@
 What changed in each version of the Advice Tracker extension, newest first: for participants, and in
 the *Data notes* for the study team. How to install and use it: [README.md](README.md).
 
+## 0.6.13
+
+- **The times the extension states match the consent form**: about 1 to 2 minutes for the quick
+  questions (the questions panel, "Rate this advice conversation now?", a conversation from another
+  device), about 4 to 8 minutes for the outcome questions (the follow-up's pop-up) and for each past
+  conversation (its invitation, its card, the settings page). They said 5 to 10 minutes, or about 5.
+  Data notes: `consent` events carry the text's version `2026-11-10b` (the settings page's sentence
+  about a past conversation's time changed).
+
 ## 0.6.12
 
 - **Your Participant ID is your Prolific ID**, as the settings page now says. The research team's

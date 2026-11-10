@@ -30,5 +30,5 @@ STUDY_CONFIG.outcomesReminderDays = 2;
 // the consent text on the settings page (uploaded with each consent). A participant's past ends when
 // they first installed the extension (the study server's first event of their ID, if earlier).
 STUDY_CONFIG.historySites = ["chatgpt.com", "claude.ai", "gemini.google.com", "grok.com", "www.perplexity.ai"];
-STUDY_CONFIG.historyConsentVersion = "2026-11-10";
+STUDY_CONFIG.historyConsentVersion = "2026-11-10b";
 self.STUDY_CONFIG = STUDY_CONFIG;

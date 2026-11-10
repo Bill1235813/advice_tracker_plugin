@@ -209,7 +209,7 @@ function itemCard(episode, settings, now) {
     <p class="meta intro">${Questions.escape(intro)}</p>${quote(episode.openingText || "")}
     <p class="meta"><a href="${Questions.escape(episode.url)}" target="_blank" rel="noopener">Open this conversation on ${Questions.escape(episode.site)}</a></p>
     ${past ? `<p class="meta"><b>You can earn ${Questions.escape(STUDY_CONFIG.pastReward)} for annotating this past conversation</b>
-      (up to ${STUDY_CONFIG.pastLimit} conversations; about 5-10 minutes). Answer No or Skip if it was not advice: that is fine, and never
+      (up to ${STUDY_CONFIG.pastLimit} conversations; about 4 to 8 minutes each). Answer No or Skip if it was not advice: that is fine, and never
       affects your participation. <a href="#" class="stop">Stop asking about past conversations</a></p>` : ""}
     <div class="confirm" ${confirmed ? "hidden" : ""}><b>Did you ask the AI for advice about your own situation in this conversation?</b> <a class="whatis" href="${OUTCOMES ? "checkin.html" : ""}#advice"${OUTCOMES ? ' target="_blank"' : ""}>what counts as advice?</a><br>
       <button type="button" class="yes">Yes</button> <button type="button" class="secondary no">No</button>
