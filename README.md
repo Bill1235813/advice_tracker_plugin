@@ -16,7 +16,25 @@ version (one-click install) is in preparation; until then, follow the steps belo
 
 **How it works, in detail:** [`docs/advice-tracker-design.pdf`](docs/advice-tracker-design.pdf).
 
-## What's new in version 0.6.13
+## What's new in version 0.6.14
+
+- **The study's five weeks.** New advice conversations are collected until the end of week 3. In
+  week 4 only conversations that began before are still followed. All follow-up questions, and the
+  questions about past conversations, are due by the end of week 5. The menu under the extension
+  icon shows which week you are in.
+- **Study rules.** *Study rules: payments and participation*, under the extension icon, shows your
+  own calendar (when each week ends, when payments come) and the study's rules.
+- **Too early to tell.** When the outcome questions come and it is too early to tell how things
+  turned out, say so with one click: they come back two days later. In week 5 they are due.
+- **A reminder every two days** while anything on your Outcomes page is unanswered.
+- **Pause tracking** first shows what a pause means for your payment.
+- **Report an advice conversation we missed**, under the extension icon, tells the study team about
+  a conversation in which you asked for advice and the extension did not ask you about.
+- Updating your answers when an advice conversation goes on is encouraged, not required.
+- With your answers, the extension now also sends how long you took to answer, and twice a day
+  when you last sent a message to one of the five AI assistants (the time only, never the text).
+
+In 0.6.13:
 
 - The times the extension tells you match the consent form: about 1 to 2 minutes for the quick
   questions, about 4 to 8 minutes for the outcome questions and for each past conversation.
@@ -87,14 +105,39 @@ still open, otherwise a Chrome notification reminds you. At any time, click the 
 things are waiting.
 
 From a week after an advice conversation, a small pop-up on a chat site's page asks whether you made
-a decision about it. Everything about these follow-ups, and about past conversations, is also on the
-**Outcomes** page (extension icon → Outcomes); a Chrome notification reminds you of it every two
-days while a question waits.
+a decision about it and acted on it, and then how things turned out. If it is too early to tell, say
+so, and it asks again two days later. Everything you have not answered yet, and the past
+conversations, are on the **Outcomes** page (extension icon → Outcomes); a Chrome notification
+reminds you of it every two days while anything there is unanswered. In week 5 of your study the
+outcome questions of every advice conversation are due, even if you have not acted yet or it is too
+early to tell.
+
+## The study's weeks and rules
+
+The study lasts five weeks, counted from when you saved your Participant ID. Click the extension
+icon → **Study rules: payments and participation** for your own calendar, what you are paid and
+when, and the rules (they are the consent form's). In short:
+
+- **Weeks 1 to 3:** use the AI assistants as usual. The extension looks for advice conversations and
+  asks its quick questions.
+- **Week 4:** no new advice conversations are collected. One that began before is still followed if
+  you continue it, until the end of the week. Follow-up questions go on.
+- **Week 5:** the outcome questions of every advice conversation, and the questions about past
+  conversations, are due by the end of the week.
+- **Pausing:** under 12 hours nothing happens; from 12 to 24 hours you get a reminder and your
+  payment is not affected; from 24 hours to 1 week your payment for that week is reduced for the
+  time paused; after more than 1 week your participation in the study ends.
+- **Your answers are reviewed** by the study team. Updating them when a conversation goes on is
+  encouraged, not required. If the extension asks about a conversation that was not advice, answer
+  **No**; if it misses one, please use **Report an advice conversation we missed**.
 
 ## What it collects, and your controls
 
 - It works only on the five chat sites above and reads nothing else (no browsing history, no
   passwords, no other websites).
+- **From the end of week 3 of your study, new conversations are no longer checked**: a message is
+  sent to the study's AI model only if it continues an advice conversation that began before, and
+  from the end of week 4 none is (past conversations, if you turned them on, are still read).
 - **Only the messages you send while tracking is on are processed** (your participant ID is set,
   tracking is not paused, and the site is not excluded). Opening an old chat from the sidebar never
   sends anything; if you continue an old chat, only your new messages are checked. The one
@@ -114,7 +157,7 @@ days while a question waits.
   checked by the study's AI model like those on the web; a conversation's text is sent only with
   your answers about it, or with your No (for a past one, the conversation is shown to you as it
   will be sent).
-  The text of a conversation found but not answered stays on your computer at most 30 days. To keep
+  The text of a conversation found but not answered stays on your computer at most 42 days. To keep
   a conversation out, pause tracking: turning the extension off does not keep out what you type
   on your phone meanwhile. "Delete all data" also turns past conversations off.
 - **To find advice conversations**, each message you send is checked by the study's own AI model,
@@ -139,19 +182,24 @@ days while a question waits.
   Names, e-mail addresses, phone numbers, web and street addresses, long numbers and similar
   details are replaced with placeholders such as `[NAME]` on your computer before anything is sent;
   add the names that matter most to you in the settings.
-- Twice a day the extension sends a heartbeat with counts (found / rated / not advice) and whether
-  tracking is on: paused or not, and on which of the five sites it can capture. A change of these
-  is reported when it happens, and removing the extension is reported too. The study team uses
-  this to know on which days the extension was tracking (see the study e-mail for what this means
-  for payment).
+- Twice a day the extension sends a heartbeat with counts (found / rated / not advice), whether
+  tracking is on (paused or not, and on which of the five sites it can capture), and when you last
+  sent a message to one of the five AI assistants (the time only, never the text). A change of what
+  is tracked is reported when it happens, and removing the extension is reported too. The study team
+  uses this to know when the extension was tracking and in use (see *Study rules* for what a pause
+  means for payment).
+- With each set of answers the extension sends how long the questions took you (when they appeared,
+  when you finished the first and the last answer, when you pressed Submit). The study team uses it
+  when it reviews the quality of the answers.
 - An advice conversation ends when the topic changes, or a week after your first advice request in
   it, whichever comes first.
 - Settings page (icon → ⋮ → Options): **pause** tracking, **exclude sites**, list **names to
   remove** from conversations before they are sent, turn **past conversations** on or off,
   **export** or **delete all** data on this computer.
-- **Feedback** you type under the extension icon (*Send feedback on the study*) is sent to the study
-  team with your participant ID, with names on your list, e-mail addresses, phone numbers and similar
-  details replaced on your computer first, as for conversations.
+- **Feedback** you type under the extension icon (*Send feedback on the study*, or *Report an advice
+  conversation we missed*) is sent to the study team with your participant ID, with names on your
+  list, e-mail addresses, phone numbers and similar details replaced on your computer first, as for
+  conversations.
 - Putting a panel off ("later") or answering "No" never affects your participation.
 
 Full privacy policy: the link in the study e-mail.
@@ -193,7 +241,7 @@ Full privacy policy: the link in the study e-mail.
 
 ## For reviewers and developers
 
-- `manifest.json` (Manifest V3, version 0.6.12): permissions `storage`, `unlimitedStorage` (no
+- `manifest.json` (Manifest V3, version 0.6.14): permissions `storage`, `unlimitedStorage` (no
   install warning), `alarms`, `notifications`, and host permissions for the five chat sites (plus
   `localhost` for the mock test page); no remote code.
 - Past and other-device conversations (0.6; past ones opt-in, other devices always read since
@@ -215,13 +263,19 @@ Full privacy policy: the link in the study e-mail.
   check-ins) and `ui/outcomes.html` the follow-ups and past conversations (one script for both,
   `ui/checkin.js`); `lib/modes.js` `followupStage` and `followupAnswer` are the follow-up's rules
   (0.6.9); `lib/questions.js` has every question (all required); `config.js` holds the server URL
-  and study key, and the servers used before (an update moves an install that still has one of
-  them to the current server). The settings page hides the research team's settings (the server
+  and study key, the servers used before (an update moves an install that still has one of
+  them to the current server), and the study's weeks in days from when the participant joined
+  (0.6.14: `newAdviceDays` 21, `continueDays` 28, `studyDays` 35; `background.js` `studyDay`,
+  `cutOf`); `ui/rules.html` is the study rules page, with the participant's calendar
+  (`ui/rules.js`). The settings page hides the research team's settings (the server
   and key, the follow-up time, the quiet time) since 0.6.12: `options/options.html?advanced`
   shows them, for a test.
 - Uploads (`POST /events`; the episode events carry `source`: web, app or past; an answer to a
   question that does not apply is `null`, e.g. `outcome` when `too_early` is ticked, `feel_better`
-  unless `followed` is `fully` or `partly`):
+  unless `followed` is `fully` or `partly`). Since 0.6.14 `episode_rating`, `checkin` and
+  `past_annotation` carry `timing`: `shown_at`, `first_answer_at`, `last_answer_at`, `submitted_at`
+  and `seconds` (from the first answer finished to the last; `null` when nothing on the form
+  changed, or the page was older than 0.6.14).
   - `episode_rating`: answers + the redacted transcript from the opening turn through the answered one.
   - `episode_transcript`: the complete redacted transcript from the opening turn, when an answered
     episode ends (or when tracking is on again, if it ended while tracking was off), with
@@ -231,12 +285,16 @@ Full privacy policy: the link in the study e-mail.
     episode), with the redacted `transcript` from the opening turn through the episode's last turn,
     as `episode_rating` sends it, and the `redacted` counts (`null` where the text stays, as with
     answers); a past one also its `fingerprint` and `opened_at`.
-  - `checkin`: the outcome answers, with `followup` (`ask_from`, `due_at`, `shown`, and the answers
-    with their times: `decided`, `decidedAt`, `acted`, `actedAt`, `actWhen`, `plannedAt`); for an
-    episode from 0.4 also the conversation as reviewed there (`transcript`, `transcript_edited`).
-  - `followup`: each answer to the follow-up's questions (`step` decided, acted or when, `answer`,
-    `where` popup or page, the `stage` after it, `days_since_request`, `next_at`, `planned_at`,
-    `shown`, `study_end`; no text).
+  - `checkin`: the outcome answers, with `followup` (`ask_from`, `due_at`, `shown`, `final_call`:
+    answered in the study's last week, when they are due; and the answers with their times:
+    `decided`, `decidedAt`, `acted`, `actedAt`, `actWhen`, `plannedAt`, `tooEarly`: how often "too
+    early to tell" put them off, `tooEarlyAt`); `too_early` is `[]` when the form had the button
+    instead of the box (before the last week); for an episode from 0.4 also the conversation as
+    reviewed there (`transcript`, `transcript_edited`).
+  - `followup`: each answer to the follow-up's questions (`step` decided, acted, when or outcome,
+    `answer` (for outcome: `early`, too early to tell, or `yes`, "I can tell now"), `where` popup or
+    page, the `stage` after it, `days_since_request`, `next_at`, `planned_at`, `due_at`,
+    `too_early`, `shown`, `study_end`; no text).
   - `past_annotation` (answers + the redacted transcript of a past conversation, with a
     `fingerprint` to pay each once), `past_skipped`, and `consent` (`feature`, `accepted`, `version`).
   - `prompt`: a question shown (kinds include `invite` and `card`); it can end `withdrawn` (the pop-up
@@ -245,10 +303,12 @@ Full privacy policy: the link in the study e-mail.
     `listening_sites`, `excluded_sites`, `sites_without_access`, `read_past`, `read_apps`; the
     heartbeat also the extension's `version`, `history` (per site: ok, not_yet, waiting, signed_out,
     other_account, blocked, unsupported), `waiting_past`, `joined_at`, `joined_estimated`,
-    `install_id`, `followup_stages` and counts (among them `feedback`, `upload_rejected`,
-    `upload_rejected_<type>`).
+    `install_id`, `followup_stages`, `last_message_at` (0.6.14: when the participant last sent a
+    message on one of the five sites, or on another device as read from the site) and counts (among
+    them `feedback`, `feedback_missed_advice`, `upload_rejected`, `upload_rejected_<type>`).
   - `feedback`: what the participant typed under the extension icon (`text`, redacted on the
-    computer), the `redacted` counts and the extension's `version`.
+    computer), its `kind` (0.6.14: `feedback`, or `missed_advice` for a report of an advice
+    conversation the extension did not ask about), the `redacted` counts and the extension's `version`.
 - The extension also asks `GET /past?participant_id=` for the fingerprints of the past conversations
   the participant ID annotated, on any install, and `GET /config`, whose `{history: {"<site>": false}}`
   stops reading a site. On removal Chrome opens `<server>/uninstalled?participant_id=...&key=...`,

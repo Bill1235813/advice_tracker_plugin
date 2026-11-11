@@ -10,10 +10,20 @@
   <!-- every advice conversation whose follow-up is not done, oldest first (checkin.js followupCard) -->
   <h2 class="section">Your advice conversations</h2>
   <p class="meta">From a week after you asked the AI for advice, we ask whether you made a decision and acted on it, then how
-    it turned out.</p>
+    it turned out. Everything you have not answered yet stays listed here: conversations you have not decided about, decisions
+    you have not acted on, and outcomes that are not answered yet or were too early to tell. While anything is listed, a
+    reminder comes every 2 days.</p>
+  <!-- (the dates in the two spans: checkin.js main, from when the participant joined) -->
+  <p class="meta">In the last week of your study<span class="final-from"></span>, the outcome questions of every conversation are
+    due by the end of the study<span class="due-by"></span>, even if you have not acted yet or it is too early to tell.
+    <a href="rules.html">Study rules: payments and participation</a></p>
   <div id="list"></div>
   <!-- past conversations (0.6 opt-in): the one each site asks about now, and how reading the sites goes -->
   <h2 class="section">Past conversations</h2>
+  <p class="meta">The questions about past conversations are due by the end of your study<span class="due-by"></span>. Please
+    answer them early: the longer you wait, the more details you forget, and annotations of low quality are removed by the
+    study team and not paid. A past conversation you do not want to annotate can be skipped: nothing is due for it then. A
+    reminder comes every 2 days while past conversations wait here, and none once all are answered.</p>
   <aside id="reading" class="reading" hidden></aside>
   <div id="past-list"></div>
   <!-- free support resources (IRB protocol, section 11b) -->

@@ -1,0 +1,114 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Advice Tracker study rules</title>
+<link rel="stylesheet" href="checkin.css">
+<style>
+  .card ul { padding-left: 20px; margin: 6px 0; } .card li { margin: 4px 0; } .card p { margin: 8px 0; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  th, td { text-align: left; vertical-align: top; padding: 6px 8px; border-bottom: 1px solid #e4e4de; }
+  th { color: #647084; font-weight: 600; } tr.now td { background: #eeeffb; } td.when { white-space: nowrap; }
+</style>
+<!-- The study's rules for payments and participation (0.6.14), as in the consent form: the popup, the settings
+     page and the two pages of questions link here. rules.js adds the participant's own calendar. -->
+<div class="wrap">
+  <h1>Advice Tracker study rules</h1>
+  <p class="sub">Payments and participation, as in the consent form. Questions? Click the Advice Tracker icon, then
+    <b>Send feedback on the study</b>, or send us a message on Prolific.</p>
+  <p class="pages">Your questions: <a href="checkin.html">quick check-ins</a> · <a href="outcomes.html">your Outcomes page</a></p>
+
+  <h2 class="section">Your study calendar</h2>
+  <div class="card" id="calendar"><p class="empty">Your calendar appears here once you have saved your participant ID in the settings.</p></div>
+
+  <h2 class="section">What you are paid</h2>
+  <div class="card">
+    <ul>
+      <li><b>$5</b> for the consent and the first questionnaire.</li>
+      <li><b>$10 for each of weeks 1 to 3</b>, paid 5 days after the end of the week.</li>
+      <li><b>$10 for weeks 4 and 5 together</b>, paid 5 days after the end of week 5.</li>
+      <li><b>$5</b> if you take part for all five weeks and complete the final questionnaire.</li>
+      <li><b>$10 high-quality bonus</b> at the end of the study if your answers are of high quality. It does not depend on
+        how many advice conversations you had.</li>
+      <li><b>$2 for each past conversation</b> you answer the questions about (optional, up to 30).</li>
+    </ul>
+    <p>A payment is made when you were <b>active</b> during that time and completed all the <b>due tasks</b>. A week is each
+      7 days after you installed the extension.</p>
+    <ul>
+      <li><b>Active</b>: the extension stayed installed and turned on, and you did at least one of these: (1) had an advice
+        conversation, (2) answered quick questions or follow-up questions, or (3) sent concrete feedback through the
+        extension, for example about an advice conversation it missed or a possible improvement.</li>
+      <li><b>Due tasks</b>: the quick questions for every advice conversation that started in weeks 1 to 3 and, in week 5,
+        the outcome questions for all your advice conversations, including the past conversations that are waiting for
+        your answers. In week 5 the outcome questions must be answered even if you have not acted yet or it is too early
+        to tell.</li>
+    </ul>
+  </div>
+
+  <h2 class="section">Reminder, quality review and late answers</h2>
+  <div class="card">
+    <ul>
+      <li><b>Reminder.</b> If at the end of a week you were not active or have due tasks left, we send you a reminder. You
+        then have 3 days to (a) answer quick questions or follow-up questions that are waiting, if there are any, or send
+        feedback (an advice conversation started after the end of the week does not count), and (b) finish the due tasks.</li>
+      <li><b>Quality review.</b> In the 2 days after that, we review the quality of the answers. We flag conversations that
+        are clearly not advice but were answered as advice, answers that were filled in very fast (the extension records
+        how long each set of questions takes you), and other signs of low quality. Flagged conversations are removed. If
+        most of your answers in a week are removed, you lose the payment for that week ($10); a removed past conversation
+        loses its $2.</li>
+      <li><b>Late answers.</b> Answers still missing at the end of the 3 days are late. For a week of weeks 1 to 3 you are
+        then paid in proportion to the advice conversations you answered on time; for week 5, in proportion to the outcome
+        questions you answered on time (for conversations during the study and for past conversations). With late answers
+        you do not receive the high-quality bonus.</li>
+    </ul>
+  </div>
+
+  <h2 class="section">Pausing</h2>
+  <div class="card">
+    <p>Nothing is recorded while tracking is paused. How long the pause lasts decides what happens:</p>
+    <ul>
+      <li><b>Under 12 hours:</b> nothing happens.</li>
+      <li><b>12 to 24 hours:</b> you get a reminder; your payment is not affected.</li>
+      <li><b>24 hours to 1 week:</b> your payment for that week is reduced for the time paused.</li>
+      <li><b>Over 1 week:</b> your participation in the study ends.</li>
+    </ul>
+  </div>
+
+  <h2 class="section">When your participation ends early</h2>
+  <div class="card">
+    <ul>
+      <li>You pause the extension for more than 1 week.</li>
+      <li>The extension detects very low use of the AI assistants, for example no use for a week. (It reports when you
+        last sent a message to one of them: the time only, never the text.)</li>
+      <li>Nothing further is needed from you. If you had no advice conversations in weeks 1 to 3, there are no outcome
+        questions for you in weeks 4 and 5, so your participation ends at the end of week 3. If past conversations are
+        still waiting for your answers then, we send you a reminder, you have 3 days to answer them, and your
+        participation ends after that. You are then not paid for weeks 4 and 5 ($10), the final questionnaire ($5) or
+        the high-quality bonus ($10).</li>
+    </ul>
+    <p>If you stop taking part or we end your participation, you keep the payments you have already earned, and you are
+      paid for the days of the current week.</p>
+  </div>
+
+  <h2 class="section">Your answers</h2>
+  <div class="card">
+    <ul>
+      <li><b>Updating.</b> When an advice conversation goes on, the extension asks whether to update your answers. Updating
+        is encouraged, not required. We review the answers later: answers that clearly needed an update and were left as
+        they were may be flagged as low quality.</li>
+      <li><b>Not advice.</b> If the extension asks about a conversation in which you did not ask for advice, answer
+        <b>No</b>. We keep that conversation, with personal details removed, to make the extension more accurate, and do
+        not ask about it again.</li>
+      <li><b>Missed advice.</b> If the extension misses a conversation in which you asked for advice, please tell us:
+        click the Advice Tracker icon, then <b>Report an advice conversation we missed</b>.</li>
+      <li><b>Follow-ups.</b> From 7 days after an advice conversation, the extension asks whether you made a decision and
+        acted on it, then how it turned out. If it is too early to tell, say so, and it asks again 2 days later.
+        Everything you have not answered yet is listed on your Outcomes page, and a reminder comes every 2 days while
+        anything is listed there. In week 5 the outcome questions of every conversation are due.</li>
+      <li><b>Past conversations</b> (optional). Their questions are due by the end of week 5. Please answer them early: the
+        longer you wait, the more details you forget. A past conversation you do not want to annotate can be skipped
+        (<b>Skip this one</b>): nothing is due for it then.</li>
+    </ul>
+  </div>
+</div>
+<script src="../config.js"></script>
+<script src="../lib/modes.js"></script>
+<script src="rules.js"></script>

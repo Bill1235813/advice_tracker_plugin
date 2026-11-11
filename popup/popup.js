@@ -10,9 +10,22 @@ async function refresh() {
   const kindOn = (e) => e.source !== "past" || Boolean(settings.readPast);
   const askable = (e) => !Modes.viaQueue(e) || (Boolean(kindOn(e)) && !isExcluded(new URL(e.url).hostname, settings.excludedHosts || []));
   document.getElementById("n-pending").textContent = episodes.filter((e) => Modes.waiting(e) && askable(e)).length;
-  // follow-up questions that wait (did you decide, did you act, the outcome questions: lib/modes.js followupStage)
+  // follow-ups that have begun and are not finished, as the outcomes page lists them and its reminder counts them
+  // (did you decide, did you act, the outcome questions, or a wait for one of these: lib/modes.js followupOpen)
   const end = Modes.studyEnd(stored, STUDY_CONFIG.studyDays);
-  document.getElementById("n-due").textContent = episodes.filter((e) => Modes.followupAsks(Modes.followupStage(e, now, end))).length;
+  document.getElementById("n-due").textContent = episodes.filter((e) => Modes.followupOpen(Modes.followupStage(e, now, end))).length;
+  // where the participant is in the study: its weeks count from when they joined (lib/modes.js studyDay), new advice
+  // conversations are collected in the first three, open ones followed in the fourth, everything is due in the fifth
+  const days = (now - Modes.studyDay(stored, 0)) / 86400000;
+  const week = document.getElementById("study-week");
+  if (!(days >= 0)) week.textContent = "";                // (no participant ID yet)
+  else if (days >= STUDY_CONFIG.studyDays) week.textContent = "The study's five weeks are over. Thank you!";
+  else {
+    const doing = days >= STUDY_CONFIG.continueDays ? `all outcome questions are due by ${new Date(end).toLocaleDateString()}`
+      : days >= STUDY_CONFIG.newAdviceDays ? "no new advice conversations are collected; follow-ups go on"
+      : "advice conversations are collected";
+    week.textContent = `Study week ${Math.floor(days / 7) + 1} of ${STUDY_CONFIG.studyDays / 7}: ${doing}.`;
+  }
   document.getElementById("n-removed").textContent = stats.not_advice || 0;
   // past conversations found that can be annotated now (the follow-up time after the request), and the switch
   document.getElementById("n-past").textContent = episodes.filter((e) => askable(e) && Modes.queueDue(e, now, Modes.followupSeconds(settings))?.stage === "past").length;
@@ -46,12 +59,25 @@ async function refresh() {
 document.getElementById("open-checkin").onclick = () => chrome.tabs.create({ url: chrome.runtime.getURL("ui/checkin.html") });
 document.getElementById("open-outcomes").onclick = () => chrome.tabs.create({ url: chrome.runtime.getURL("ui/outcomes.html") });
 document.getElementById("options").onclick = () => chrome.runtime.openOptionsPage();
+document.getElementById("rules").onclick = () => chrome.tabs.create({ url: chrome.runtime.getURL("ui/rules.html") });
+// NOTE: [design thought] a pause counts in the study's rules (ui/rules.html), so the popup shows them before it
+// pauses (0.6.14): "Pause tracking" opens the box, and only the box's own button pauses. Resuming needs no second click.
+const pauseBox = document.getElementById("pause-box");
+async function setPaused(paused) {
+  const { settings = {} } = await chrome.storage.local.get("settings");
+  pauseBox.hidden = true;
+  if (Boolean(settings.paused) === paused) return;        // (a second click: the pause keeps its start)
+  // pausedAt: since when tracking is paused (the heartbeat reports it, and the reminders count from it)
+  await chrome.storage.local.set({ settings: { ...settings, paused, pausedAt: paused ? Date.now() : null } });
+  refresh();
+}
 document.getElementById("pause").onclick = async () => {
   const { settings = {} } = await chrome.storage.local.get("settings");
-  // pausedAt: since when tracking is paused (the heartbeat reports it)
-  await chrome.storage.local.set({ settings: { ...settings, paused: !settings.paused, pausedAt: settings.paused ? null : Date.now() } });
-  refresh();
+  if (settings.paused) return setPaused(false);
+  pauseBox.hidden = !pauseBox.hidden;
 };
+document.getElementById("pause-confirm").onclick = () => setPaused(true);
+document.getElementById("pause-cancel").onclick = () => { pauseBox.hidden = true; };
 document.getElementById("debug").onclick = async () => {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   const out = document.getElementById("debug-out");
@@ -73,24 +99,38 @@ document.getElementById("debug").onclick = async () => {
 };
 
 // Feedback on the study (0.6.12), in the participant's own words: the background redacts it, as every text, and
-// sends it (background.js onFeedback).
-// NOTE: [design thought] a click outside closes the popup, so the draft is kept while the browser runs
+// sends it (background.js onFeedback). The same box takes a report of an advice conversation the extension did not
+// ask about (0.6.14, "Report an advice conversation we missed"): the study wants to know what its advice model
+// misses, as "No" tells it what the model wrongly took for advice. `feedbackKind` says which of the two the box is for.
+// NOTE: [design thought] a click outside closes the popup, so the draft (and its kind) is kept while the browser runs
 // (chrome.storage.session, in memory only; "Delete all data" clears it too) and comes back when it reopens
 const feedbackBox = document.getElementById("feedback-box"), feedbackText = document.getElementById("feedback-text");
 const feedbackSend = document.getElementById("feedback-send"), feedbackStatus = document.getElementById("feedback-status");
-document.getElementById("feedback").onclick = () => {
-  feedbackBox.hidden = !feedbackBox.hidden;
-  if (!feedbackBox.hidden) feedbackText.focus();
+const PLACEHOLDERS = {
+  feedback: "Anything you want the study team to know: what worked, what did not, a question, an idea to improve the extension...",
+  missed_advice: "Which AI assistant, about when, and in a sentence what you asked advice about. Please do not paste the conversation.",
 };
+let feedbackKind = "feedback";
+function openFeedback(kind) {
+  // (the same button again closes the box; the other one turns it into its kind)
+  feedbackBox.hidden = !feedbackBox.hidden && feedbackKind === kind;
+  feedbackKind = kind;
+  feedbackText.placeholder = PLACEHOLDERS[kind];
+  chrome.storage.session.set({ feedbackKind: kind });
+  if (!feedbackBox.hidden) feedbackText.focus();
+}
+document.getElementById("feedback").onclick = () => openFeedback("feedback");
+document.getElementById("missed").onclick = () => openFeedback("missed_advice");
+feedbackText.placeholder = PLACEHOLDERS.feedback;
 feedbackText.oninput = () => chrome.storage.session.set({ feedbackDraft: feedbackText.value });
 feedbackSend.onclick = async () => {
   const text = feedbackText.value.trim();
   if (!text) {
-    feedbackStatus.textContent = "Please write your feedback first.";
+    feedbackStatus.textContent = feedbackKind === "missed_advice" ? "Please describe the conversation first." : "Please write your feedback first.";
     return;
   }
   feedbackSend.disabled = true;               // (one feedback per click, even on a double click)
-  const reply = await chrome.runtime.sendMessage({ type: "feedback", text });
+  const reply = await chrome.runtime.sendMessage({ type: "feedback", text, kind: feedbackKind });
   const { settings = {} } = await chrome.storage.local.get("settings");
   feedbackText.value = "";
   await chrome.storage.session.remove("feedbackDraft");
@@ -99,8 +139,10 @@ feedbackSend.onclick = async () => {
     : settings.participantId ? "Thank you: it will be sent as soon as the study server can be reached."
     : "Thank you: it will be sent once you save your participant ID in Settings.";
 };
-chrome.storage.session.get("feedbackDraft").then(({ feedbackDraft }) => {
+chrome.storage.session.get(["feedbackDraft", "feedbackKind"]).then(({ feedbackDraft, feedbackKind: kind }) => {
   if (!feedbackDraft) return;
+  feedbackKind = kind === "missed_advice" ? kind : "feedback";
+  feedbackText.placeholder = PLACEHOLDERS[feedbackKind];
   feedbackText.value = feedbackDraft;
   feedbackBox.hidden = false;
 });

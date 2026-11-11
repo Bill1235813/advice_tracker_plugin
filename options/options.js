@@ -16,6 +16,7 @@ async function load() {
   document.getElementById("excludedHosts").value = (settings.excludedHosts || []).join("\n");
   document.getElementById("redactNames").value = (settings.redactNames || []).join("\n");
   document.getElementById("paused").checked = !!settings.paused;
+  showPauseRules();
   document.getElementById("readPast").checked = !!settings.readPast;
   const mode = document.querySelector(`#rating-mode input[value="${settings.ratingMode || DEFAULTS.ratingMode}"]`);
   if (mode) mode.checked = true;
@@ -25,6 +26,12 @@ async function load() {
   document.getElementById("held-count").textContent = `${held.length} upload(s)`;
 }
 
+// The study's rules for a pause (0.6.14) are on the page while the box is ticked: before Save pauses, and while paused
+function showPauseRules() {
+  document.getElementById("pause-rules").hidden = !document.getElementById("paused").checked;
+}
+document.getElementById("paused").onchange = showPauseRules;
+
 // NOTE: [edge case callout] the popup can pause or resume tracking while this page is open, and an
 // invitation, a card or "Delete all data" can turn reading past conversations off: the boxes follow, so a
 // later Save here does not quietly undo it
@@ -32,6 +39,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== "local" || !changes.settings?.newValue) return;
   const settings = changes.settings.newValue;
   document.getElementById("paused").checked = Boolean(settings.paused);
+  showPauseRules();
   document.getElementById("readPast").checked = Boolean(settings.readPast);
 });
 

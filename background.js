@@ -7,6 +7,9 @@
 //   frequent, switching, periodical or combined) -> the follow-up, followupSeconds after the episode's
 //   first request (7 days): did they decide, did they act, then how it turned out (lib/modes.js
 //   followupStage; a pop-up on the chat page, and the outcomes page).
+// The study's weeks count from when the participant joined (config.js): new advice conversations are looked
+// for until the end of week 3, open ones are followed until the end of week 4, and the follow-ups go on
+// until the end of week 5 (0.6.14).
 // Every text leaves the computer only after local redaction (lib/redact.js): the episode's
 // conversation (the participant's messages and the assistant's replies) is uploaded with every set
 // of answers, and once more, complete, when an episode with answers ends.
@@ -23,12 +26,14 @@
 //   act:<chat>      when the participant last typed in the chat (pauses: periodical, combined modes)
 //   lastView        the conversation the participant looked at last (moves: switching, combined)
 //   episode:<id>    an episode from its first advice turn on: its mode, the answers given so far,
-//                   and its text from its end until the day-14 check-in
+//                   and its text from its end until the outcome questions of its follow-up are answered
 //   queue, stats    uploads waiting for the network; counts for the heartbeat
 //   held            uploads that "Hold my answers on this computer" (before 0.5) held back: sent or
 //                   deleted only when the participant chooses so on the settings page
 //   heartbeatAt     when the last heartbeat was sent
 //   joinedAt        when the participant ID was first set: turns before it are past, after it the study's
+//   lastMessageAt   when the participant last sent a message to one of the AI assistants (a time, no text)
+//   pausedRemindedAt  when the last reminder of a pause came
 //   trackingLog     [{at, on: [hosts]}]: from `at` on, tracking was on for these sites (none while paused)
 //   deletedAt       when "delete all data" last ran
 //   appsFrom        (an install updated to 0.6.11 that had not agreed to read other devices) the update: turns from
@@ -55,6 +60,9 @@ const ASK_WAIT_MINUTES = 5;  // a question about a reply waits at most this long
 const HEARTBEAT_MINUTES = 12 * 60;
 const QUESTION_EXPIRE_DAYS = 14;     // a question about an episode never answered goes this long after its first request
 const FOLLOWUP_GAP_MS = 4 * 3600 * 1000;   // follow-up pop-ups about different conversations at most this often
+// The study's weeks, in days from when the participant joined (config.js; studyDay below)
+const NEW_ADVICE_DAYS = STUDY_CONFIG.newAdviceDays ?? 21;    // new advice conversations are looked for until the end of week 3 ...
+const CONTINUE_DAYS = STUDY_CONFIG.continueDays ?? 28;       // ... and open ones are followed until the end of week 4
 let generation = 0;          // "delete all data" bumps it; judging loops begun before stop writing
 let deletingSince = 0;       // when "delete all data" last ended (Infinity while it runs): snapshots taken before are ignored
 
@@ -100,6 +108,14 @@ function count(name) {
   return serialized("stats", async () => {
     const stats = (await load("stats")) || {};
     await save("stats", { ...stats, [name]: (stats[name] || 0) + 1 });
+  });
+}
+// When the participant last sent a message to one of the AI assistants (a time, no text): the heartbeat
+// reports it, since the study's rules ask for some use of the assistants in every week, and from the end of
+// week 3 on no message goes to the study server
+function noteMessage(at) {
+  return serialized("lastMessageAt", async () => {
+    if (at > ((await load("lastMessageAt")) ?? 0)) await save("lastMessageAt", at);
   });
 }
 // Change an episode record: change(record) returns the new record, or null to delete it.
@@ -198,6 +214,7 @@ async function onSnapshot(message, sender) {
       const userTurns = Episodes.splitTurns(messages).userTurns, ids = Episodes.turnIds(userTurns);
       const entries = firstSent.map((id) => ({ h: Episodes.looseHash(userTurns[ids.indexOf(id)] ?? ""), at: message.capturedAt }));
       await save(`sentlog:${key}`, [...((await load(`sentlog:${key}`)) || []), ...entries].slice(-500));
+      await noteMessage(message.capturedAt);
     }
     const same = stored && JSON.stringify(stored.messages) === JSON.stringify(messages);
     // whole: the copy holds the chat from its first settled turn on (Episodes.sync). A copy begun
@@ -417,6 +434,17 @@ async function settle(key) {
       await closeEpisode(key, chat, closed, page);
       continue;
     }
+    // NOTE: [design thought] the study looks for new advice conversations in its first three weeks only
+    // (NEW_ADVICE_DAYS): a turn sent after them that no open episode takes is not judged, and nothing of it
+    // goes to the study server. It is settled here as "not advice", so the chat lets go of its text as always.
+    // NOTE: [edge case callout] the time is the page's last change before this look (as a judgment's sentAt): a
+    // turn sent in the last moments of week 3 whose reply is still being written when the week ends is not judged
+    if (job?.kind === "advice" && snapshot.changedAt >= await studyDay(NEW_ADVICE_DAYS)) {
+      ({ chat } = Episodes.applyLabel(chat, job, { advice: false }));
+      if (stale()) return;
+      await save(`chat:${key}`, chat);
+      continue;
+    }
     if (job) {
       if (trackingOff(settings)) return;
       const id = await submit(job, chat, settings);
@@ -454,11 +482,20 @@ async function settle(key) {
   }
 }
 
-// When the open episode of `chat` is complete: cutDays after its first request (the record keeps
-// that time too, for a chat from before 0.4 that does not)
+// When the open episode of `chat` is complete (cutOf; the record keeps the time of its first request too,
+// for a chat from before 0.4 that does not)
 async function cutAt(chat, settings) {
   const openedAt = chat.openedAt ?? (await load(`episode:${chat.episodeId}`))?.openedAt ?? Date.now();
-  return openedAt + settings.cutDays * 24 * 3600 * 1000;
+  return cutOf(openedAt, settings);
+}
+
+// When an episode is complete: cutDays after its first request, and at the end of the study's week 4 at the
+// latest (CONTINUE_DAYS: no conversation is followed after it).
+// NOTE: [design thought] with the study's numbers the second never comes first (a conversation that began
+// before the end of week 3 is complete 7 days later, so by the end of week 4): it is written down here so
+// that the rule holds whatever cutDays is (a test can change it on the settings page)
+async function cutOf(openedAt, settings) {
+  return Math.min(openedAt + settings.cutDays * DAY_MS, await studyDay(CONTINUE_DAYS));
 }
 
 // An episode of the chat closed (`chat` is the chat after it, still carrying the episode's id).
@@ -775,7 +812,8 @@ function panelEpisode(record, stage, settings) {
 }
 
 function panelSettings(settings) {
-  return { followupSeconds: settings.followupSeconds, updateSeconds: settings.updateSeconds };
+  // (askAgainDays: lib/modes.js is not loaded on the chat pages, and the follow-up pop-up says "in 2 days")
+  return { followupSeconds: settings.followupSeconds, updateSeconds: settings.updateSeconds, askAgainDays: Modes.ASK_AGAIN_DAYS };
 }
 
 // The episode's conversation from its first advice turn (the opening) through turn `end`,
@@ -874,7 +912,7 @@ async function ask(id, rule, view = null) {
   // NOTE: [design thought] notifications never show conversation text (IRB protocol)
   chrome.notifications.create(`rate|${id}`, {
     type: "basic", iconUrl: "icons/icon128.png", title: "Advice Tracker: a quick question",
-    message: `A conversation on ${record.site} looked like a request for advice. Click to answer a few questions (about 5-10 min).`,
+    message: `A conversation on ${record.site} looked like a request for advice. Click to answer a few questions (about 1 to 2 minutes).`,
   });
   await count("asked_notification");
   return true;
@@ -1076,13 +1114,14 @@ async function onRatingSubmitted(message) {
     await armFollowup(record.id);
   }
   // NOTE: [design thought] the answers go with the conversation they are about (turns
-  // opening..answeredEnd), both redacted on this computer
+  // opening..answeredEnd), both redacted on this computer; `timing` is how long the form took (0.6.14,
+  // lib/questions.js timing: times only), for the study team's review of the answers' quality
   const conversation = await transcript(record, record.answeredEnd, settings);
   await upload("episode_rating", {
     episode: record.id, site: record.site, source: record.source ?? "web", mode: record.mode, stage, version: record.versions,
     turns: record.answeredEnd - record.start + 1, opening_turn: record.opening - record.start + 1, open: record.status === "open",
     closed_by: record.closedBy, opened_at: record.openedAt, closed_at: record.closedAt,
-    rating: redactAnswers(message.rating, settings.redactNames), related_earlier: record.related.length,
+    rating: redactAnswers(message.rating, settings.redactNames), timing: message.timing ?? null, related_earlier: record.related.length,
     transcript: conversation?.messages ?? null, redacted: conversation?.counts ?? null,
   }, settings);
   await count(record.versions === 1 ? "rated" : "updated");
@@ -1117,13 +1156,14 @@ async function onCheckinSubmitted(message) {
     return current.status === "open" || owed ? current : doneRecord(current);      // an open one becomes done when it ends
   });
   // (how the follow-up went, 0.6.9: when it began, the answers about deciding and acting with their times, how
-  // often its pop-up was seen; due_at is when the answers made the outcome questions ready, null when the
-  // study's last day did. Times and choices only)
+  // often its pop-up was seen and how often "too early to tell" was answered; due_at is when the answers made
+  // the outcome questions ready, null when the study's last week did (final_call: they were answered in that
+  // week, when they are due whatever the answers were). Times and choices only; `timing` as with the ratings)
   const checkin = record.checkin;
   await upload("checkin", { episode: record.id, site: record.site, source: record.source ?? "web", mode: record.mode,
-                            answers: redactAnswers(message.answers, settings.redactNames), related_later: later,
+                            answers: redactAnswers(message.answers, settings.redactNames), timing: message.timing ?? null, related_later: later,
                             followup: { ask_from: checkin.askFrom ?? null, due_at: checkin.dueAt ?? null, shown: checkin.shown ?? 0,
-                                        ...(checkin.decision || {}) },
+                                        final_call: Modes.finalCall(checkin, Date.now(), await studyEnd()), ...(checkin.decision || {}) },
                             ...(reviewed ? { transcript: Redact.redact(message.transcript, settings.redactNames).text,
                                              transcript_edited: Boolean(message.edited) } : {}) }, settings);
   await count("checked_in");
@@ -1132,19 +1172,25 @@ async function onCheckinSubmitted(message) {
 
 // ---------------- the follow-up (0.6.9): did they decide, did they act, how did it turn out ----------------
 // From followupSeconds after the request (lib/modes.js followupStage), a small pop-up on a page of a chat
-// site asks about one conversation at a time: "Did you make a decision yet?" (not yet: again the next
-// day), then "Did you act on this decision yet?" (not yet: when do you plan to?). Once the outcome
+// site asks about one conversation at a time: "Did you make a decision yet?" (not yet: again two days
+// later), then "Did you act on this decision yet?" (not yet: when do you plan to?). Once the outcome
 // questions are ready it offers the outcomes page, which lists every conversation whose follow-up is not
-// done, oldest first, with the same questions. While a question waits, a notification reminds of that page
-// every outcomesReminderDays.
+// done, oldest first, with the same questions; "too early to tell" there puts them off by two days (0.6.14),
+// until the study's last week, when they are due. While anything waits on that page, a notification reminds
+// of it every outcomesReminderDays.
 
-// When the participant's study period ends (lib/modes.js studyEnd)
+// A day of the participant's study period: `days` after they joined (lib/modes.js studyDay; Infinity while
+// that is not known, so nothing that counts the study's weeks happens then)
+async function studyDay(days) {
+  return Modes.studyDay({ pastBefore: await load("pastBefore"), joinedAt: await load("joinedAt") }, days);
+}
+// When the participant's study period ends
 async function studyEnd() {
-  return Modes.studyEnd({ pastBefore: await load("pastBefore"), joinedAt: await load("joinedAt") }, STUDY_CONFIG.studyDays);
+  return studyDay(STUDY_CONFIG.studyDays);
 }
 
-// The follow-up's stage changes with time: when it begins, at nextAt, on the study's last day. An alarm
-// at the next of these updates the badge (the question itself comes at the next page the participant opens).
+// The follow-up's stage changes with time: when it begins, at nextAt and dueAt, in the study's last week. An
+// alarm at the next of these updates the badge (the question itself comes at the next page the participant opens).
 async function armFollowup(id) {
   const checkin = (await load(`episode:${id}`))?.checkin, now = Date.now();
   const times = checkin && !checkin.doneAt ? [checkin.askFrom, checkin.nextAt, checkin.dueAt, Modes.lastCall(checkin, await studyEnd())] : [];
@@ -1163,7 +1209,7 @@ async function busyOn(view, now) {
 }
 
 // A follow-up question on the page the participant just opened (`view`): about the oldest conversation
-// whose follow-up asks something now and was not on the screen in the last day ("not yet": the next day).
+// whose follow-up asks something now and was not on the screen in the last two days (as after "not yet").
 // None while tracking is off, on an excluded site, while they are in the middle of a conversation there,
 // or within FOLLOWUP_GAP_MS of the last one.
 async function offerFollowup(view) {
@@ -1172,13 +1218,15 @@ async function offerFollowup(view) {
   if (now < ((await load("followupOfferedAt")) ?? 0) + FOLLOWUP_GAP_MS) return false;
   const end = await studyEnd();
   const waiting = (await loadAll("episode:")).map(([, record]) => record).filter((record) => Modes.followupAsks(Modes.followupStage(record, now, end)));
-  const due = waiting.filter((record) => now >= (record.checkin.shownAt ?? 0) + DAY_MS).sort((a, b) => a.openedAt - b.openedAt);
+  const due = waiting.filter((record) => now >= (record.checkin.shownAt ?? 0) + Modes.ASK_AGAIN_DAYS * DAY_MS).sort((a, b) => a.openedAt - b.openedAt);
   if (!due.length) return false;
   const record = due[0];
   // NOTE: [design thought] the conversation is named by the participant's own one-sentence summary (their
   // answer "what decision were you asking about?"), and only on a page of its own site: the page of another
   // chat company gets the site and the date alone, as every question about another site
+  // (`final`: the study's last week, when the outcome questions are due and "too early to tell" no longer puts them off)
   const item = { id: record.id, site: record.site, openedAt: record.openedAt, stage: Modes.followupStage(record, now, end),
+                 final: Modes.finalCall(record.checkin, now, end),
                  summary: view.site === record.site ? record.answers?.decision || "" : "", more: waiting.length - 1 };
   let response = null;
   try {
@@ -1189,7 +1237,7 @@ async function offerFollowup(view) {
   return true;
 }
 
-// The follow-up pop-up was on the screen: it counts as that conversation's question of the day
+// The follow-up pop-up was on the screen: it counts as that conversation's question for the next two days
 async function onFollowupSeen(message) {
   await updateEpisode(message.id, (current) => (current.checkin
     ? { ...current, checkin: { ...current.checkin, shownAt: Date.now(), shown: (current.checkin.shown ?? 0) + 1 } } : current));
@@ -1218,11 +1266,14 @@ async function onFollowupAnswer(message, reply) {
   await upload("followup", { episode: record.id, site: record.site, source: record.source ?? "web", mode: record.mode, step: message.step,
                              answer: message.answer, where: message.where, stage, days_since_request: Math.round(((now - record.openedAt) / DAY_MS) * 10) / 10,
                              next_at: record.checkin.nextAt ?? null, planned_at: record.checkin.decision?.plannedAt ?? null,
+                             due_at: record.checkin.dueAt ?? null, too_early: record.checkin.decision?.tooEarly ?? 0,
                              shown: record.checkin.shown ?? 0, study_end: Number.isFinite(end) ? end : null }, await getSettings());
 }
 
-// Every outcomesReminderDays while a follow-up question waits (lib/modes.js followupAsks): a notification that
-// opens the outcomes page, unless the participant had that page open within the last outcomesReminderDays.
+// Every outcomesReminderDays while anything waits on the outcomes page: a follow-up that is not done (lib/modes.js
+// followupOpen: not decided yet, decided and not acted on, the outcome questions, or "too early to tell") or a past
+// conversation to annotate. A notification that opens the page, unless the participant had that page open within
+// the last outcomesReminderDays; none once everything there is answered.
 // NOTE: [edge case callout] as the heartbeat's, the alarm is created only when missing and timed from the
 // last check: created again at every browser start, it would never come for someone who closes Chrome daily
 const OUTCOMES_REMINDER_DAYS = STUDY_CONFIG.outcomesReminderDays ?? 2;
@@ -1237,14 +1288,22 @@ async function remindOutcomes() {
   const settings = await getSettings(), now = Date.now(), end = await studyEnd();
   await save("outcomesCheckedAt", now);
   if (!settings.participantId) return;
-  const waiting = (await loadAll("episode:")).filter(([, record]) => Modes.followupAsks(Modes.followupStage(record, now, end))).length;
+  const records = (await loadAll("episode:")).map(([, record]) => record);
+  const followups = records.filter((record) => Modes.followupOpen(Modes.followupStage(record, now, end))).length;
+  // (a past conversation waits while the page can ask about it: countQueued in ui/checkin.js)
+  const past = records.filter((record) => record.source === "past" && kindOn(settings, record) && !excluded(settings, record.url) &&
+                                          Modes.queueDue(record, now, settings.followupSeconds)).length;
   // (not when the participant opened the page within the last period: also right after the last reminder, and
   // not long ago when the alarm comes late, after Chrome was closed for days)
-  if (!waiting || now < ((await load("outcomesSeenAt")) ?? -Infinity) + OUTCOMES_REMINDER_DAYS * DAY_MS) return;
-  // NOTE: [design thought] notifications never show conversation text (IRB protocol)
+  if (!(followups + past) || now < ((await load("outcomesSeenAt")) ?? -Infinity) + OUTCOMES_REMINDER_DAYS * DAY_MS) return;
+  // NOTE: [design thought] notifications never show conversation text (IRB protocol): the same words for every
+  // follow-up, whatever its stage, and a count of the past conversations with the day they are due (the study's end)
+  const asks = followups ? "Please check your Outcomes page for unanswered questions: Have you decided or acted? Did you get an outcome?" : "";
+  const due = Number.isFinite(end) ? ` (due by ${new Date(end).toLocaleDateString(undefined, { month: "long", day: "numeric" })})` : "";
+  const pastAsks = past ? `${past === 1 ? "One past conversation waits" : `${past} past conversations wait`} for your answers ${followups ? "there too" : "on your Outcomes page"}${due}.` : "";
   chrome.notifications.create("outcomes", {
-    type: "basic", iconUrl: "icons/icon128.png", title: "Advice Tracker: how did your decisions go?",
-    message: `${waiting === 1 ? "One of your advice conversations waits" : `${waiting} of your advice conversations wait`} for a few answers on your Outcomes page. Click to open it.`,
+    type: "basic", iconUrl: "icons/icon128.png", title: "Advice Tracker: unanswered questions",
+    message: [asks, pastAsks, "Click to open the page."].filter(Boolean).join(" "),
     requireInteraction: true,
   });
   await count("reminded_outcomes");
@@ -1421,7 +1480,7 @@ const ANSWER_WAIT_MS = 20000;          // a tab that does not answer a request w
 const PAST_TURNS_JUDGED = 10;          // a past conversation: the advice judge on its first 10 past turns at most ...
 const PAST_WINDOW_TURNS = 10;          // ... and a past episode is the request and the 9 turns after it, at most
 const PAST_SCAN_MAX = 150;             // past conversations looked at, at most
-const PAST_EXPIRE_DAYS = 30;           // a past episode never answered goes this long after it was found
+const PAST_EXPIRE_DAYS = 42;           // a past episode never answered goes this long after it was found (after the study's end, when they are due)
 const READ_TRIES_MAX = 5;              // a conversation that fails to read this often is left until it changes on the site
 const JUDGE_TRIES_MAX = 5;             // a turn the judge refuses (or fails on) this often counts as not judged by the walk
 const YOUNG_TURN_MS = 5 * 60000;       // a turn this young may still prove to be sent on the web (its snapshot is on its way)
@@ -1858,6 +1917,7 @@ async function settleHistory(key) {
 
     const owners = History.owners(hist.turns, { sentlog: (await load(`sentlog:${hist.chat}`)) || [], windows: await historyWindows(hist.host, settings) });
     const owner = owners[turn - 1], at = hist.turns[turn - 1].at;
+    if (owner === "app") await noteMessage(at);            // (a message sent on another device: a time, as on the web)
     // a young turn may still prove to be sent on the web (its snapshot is on its way), unless a later
     // turn of the conversation is already known as sent there
     if (owner === "app" && Date.now() < at + YOUNG_TURN_MS && !owners.slice(turn).includes("web")) {
@@ -1895,8 +1955,9 @@ async function settleHistory(key) {
       }
       // NOTE: [design thought] the cut and the quiet day are measured by the turns' own times here:
       // a turn sent a week after the request, or after a day without any, starts afresh
-      if (at >= judge.openedAt + settings.cutDays * DAY_MS || at - hist.turns[turn - 2].at > settings.endQuietMinutes * 60000) {
-        await store(closeHistory(judge, at >= judge.openedAt + settings.cutDays * DAY_MS ? "cut" : "quiet"));
+      const cut = await cutOf(judge.openedAt, settings);
+      if (at >= cut || at - hist.turns[turn - 2].at > settings.endQuietMinutes * 60000) {
+        await store(closeHistory(judge, at >= cut ? "cut" : "quiet"));
         continue;
       }
     } else {
@@ -1920,6 +1981,12 @@ async function settleHistory(key) {
         // turns from elsewhere right after an open episode (the web page's, or one handed over) continue it
         const taken = await takeEpisode(hist, turn, settings);
         if (taken) { await store({ ...judge, state: "episode", ...taken }); continue; }
+      }
+      // new advice conversations are looked for in the study's first three weeks only, as on the web (settle):
+      // a later turn from another device that no open episode takes is not judged
+      if (owner === "app" && at >= await studyDay(NEW_ADVICE_DAYS)) {
+        await store({ ...judge, judgedThrough: turn, segmentStart: turn + 1 });
+        continue;
       }
     }
     const later = await historyMayJudge(key, settings);
@@ -1999,7 +2066,7 @@ async function previousFromRecord(judge) {
 // an alarm to look again.
 async function historyEpisodeOver(hist, judge, settings) {
   if (judge.pastPending) return "window";
-  const cut = judge.openedAt + settings.cutDays * DAY_MS, quietAt = hist.turns[judge.end - 1].at + settings.endQuietMinutes * 60000;
+  const cut = await cutOf(judge.openedAt, settings), quietAt = hist.turns[judge.end - 1].at + settings.endQuietMinutes * 60000;
   if (Date.now() >= cut) return "cut";
   const list = await load(`hlist:${hist.host}`);
   const listed = list?.items.find((item) => item.id === hist.id);
@@ -2093,7 +2160,7 @@ async function takeEpisode(hist, turn, settings) {
   const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
   for (const [, record] of await loadAll("episode:")) {
     if (record.chatKey !== hist.chat || record.status !== "open" || record.source === "past") continue;
-    if (Date.now() >= record.openedAt + settings.cutDays * DAY_MS) continue;
+    if (Date.now() >= await cutOf(record.openedAt, settings)) continue;
     // (held by another walk that still holds it: not this one's)
     if (record.heldBy === "history" && record.walk && record.walk !== hist.key && hists.get(record.walk)?.judge?.episodeId === record.id) continue;
     const { hashes: own, messages } = await episodeTurns(record);
@@ -2155,7 +2222,7 @@ async function handOff(id, closed, page, url) {
   for (const alarm of ["pause", "ask"]) chrome.alarms.clear(`${alarm}|${id}`);
   // the conversation is read next; an episode no walk takes ends at its cut at the latest
   const record = await load(`episode:${id}`);
-  chrome.alarms.create(`heldcut|${id}`, { when: Math.max(record.openedAt + (await getSettings()).cutDays * DAY_MS, Date.now() + 60000) });
+  chrome.alarms.create(`heldcut|${id}`, { when: Math.max(await cutOf(record.openedAt, await getSettings()), Date.now() + 60000) });
   await readFirst(url);
   return true;
 }
@@ -2188,7 +2255,7 @@ async function settleHanded() {
     // (the list's time is the site's, the hand-over's this computer's: CLOCK_MARGIN_MS between them)
     const changed = listed && listed.u > (record.handedAt ?? record.takenAt ?? 0) + History.CLOCK_MARGIN_MS;
     const quietAt = (record.lastTurnAt ?? record.handedAt ?? record.openedAt) + settings.endQuietMinutes * 60000;
-    if (Date.now() >= record.openedAt + settings.cutDays * DAY_MS) await close(record.grew ? "cut" : "quiet");
+    if (Date.now() >= await cutOf(record.openedAt, settings)) await close(record.grew ? "cut" : "quiet");
     else if (Date.now() >= quietAt && !changed) await close("quiet");
   }
 }
@@ -2238,7 +2305,7 @@ async function takeFromElsewhere(key, chat, page, settings) {
     // (one taken over before whose chat does not hold it: the worker stopped between the two writes)
     const lost = record.heldBy === "web" && chat.episodeId !== record.id;
     if (record.chatKey !== key || record.status !== "open" || (record.heldBy !== "history" && !lost) || record.source === "past" || !record.turnHashes?.length) continue;
-    if (Date.now() >= record.openedAt + settings.cutDays * DAY_MS) continue;
+    if (Date.now() >= await cutOf(record.openedAt, settings)) continue;
     const length = record.turnHashes.length, start = turn - length;
     if (start < 1 || JSON.stringify(hashes.slice(start - 1, turn - 1)) !== JSON.stringify(record.turnHashes)) continue;
     let taken = false;
@@ -2325,7 +2392,8 @@ async function offerQueued(view) {
   if (!item || item.record.chatKey === view.key) return false;
   const invite = { id: item.record.id, site: item.record.site, source: item.record.source ?? "web", stage: item.decision.stage,
                    update: item.decision.show === "update", answered: item.record.versions > 0, closedBy: item.record.closedBy,
-                   openedAt: item.record.openedAt, reward: STUDY_CONFIG.pastReward, pastLimit: STUDY_CONFIG.pastLimit };
+                   openedAt: item.record.openedAt, reward: STUDY_CONFIG.pastReward, pastLimit: STUDY_CONFIG.pastLimit,
+                   dueBy: Number.isFinite(await studyEnd()) ? await studyEnd() : null };      // (past conversations are due by the study's end)
   let response = null;
   try {
     response = await chrome.tabs.sendMessage(view.tabId, { type: "offer_invite", invite, settings: panelSettings(settings) });
@@ -2354,7 +2422,7 @@ async function askQueued(record, rule, settings) {
   if (Modes.queueItem(records, now, settings.followupSeconds, queue.current)?.record.id !== record.id) return false;
   chrome.notifications.create(`rate|${record.id}`, {
     type: "basic", iconUrl: "icons/icon128.png", title: "Advice Tracker: a quick question",
-    message: `A conversation on ${record.site} looked like a request for advice. Click to answer a few questions (about 5-10 min).`,
+    message: `A conversation on ${record.site} looked like a request for advice. Click to answer a few questions (about 1 to 2 minutes).`,
   });
   await save(`qstate:${record.site}`, { ...queue, notifiedAt: now, current: record.id });
   await count("asked_notification");
@@ -2417,7 +2485,9 @@ async function onPastSubmitted(message) {
   let answered = null;
   await updateEpisode(message.id, (current) => {
     if (current.source !== "past" || current.answers || current.status !== "pending") return current;
-    answered = { ...current, answers: message.answers, versions: 1, answeredEnd: current.end, confirmedAt: current.confirmedAt ?? Date.now() };
+    // (answerTiming: how long the form took, lib/questions.js timing; it goes with the annotation)
+    answered = { ...current, answers: message.answers, answerTiming: message.timing ?? null, versions: 1, answeredEnd: current.end,
+                 confirmedAt: current.confirmedAt ?? Date.now() };
     return answered;
   });
   if (!answered) return false;
@@ -2441,6 +2511,7 @@ async function finishPastAnnotation(id) {
     conversation_created_at: record.conversationCreatedAt ?? null, detected_at: record.detectedAt,
     days_since: Math.round((Date.now() - record.openedAt) / DAY_MS), turns: record.end - record.start + 1,
     opening_turn: record.opening - record.start + 1, answers: redactAnswers(record.answers, settings.redactNames),
+    timing: record.answerTiming ?? null,
     related_earlier: record.related.length, transcript: conversation?.messages ?? null, redacted: conversation?.counts ?? null,
     ...(await studyClock()),
   } };
@@ -2577,8 +2648,8 @@ async function flushQueue() {
 // The five chat sites, as the manifest lists them for the content script ("https://chatgpt.com/*", ...)
 const STUDY_SITES = chrome.runtime.getManifest().content_scripts[0].matches.filter((match) => match.startsWith("https://"));
 
-// What the study needs to know for each day (payment is withheld for days without tracking): is
-// tracking paused, and on which of the five sites can the extension capture? A site is lost when
+// What the study needs to know for each day (its rules count a pause of more than 24 hours, ui/rules.html):
+// is tracking paused, and on which of the five sites can the extension capture? A site is lost when
 // the participant excluded it in the settings, or withheld the extension's access to it in Chrome
 // (chrome://extensions -> Site access).
 async function trackingStatus(settings) {
@@ -2612,6 +2683,9 @@ async function heartbeat() {
     // (0.6.9: how many follow-ups are at each stage, lib/modes.js followupStage)
     followup_stages: followupCounts(episodes, Date.now(), await studyEnd()),
     waiting_past: episodes.filter((episode) => episode.source === "past" && episode.status === "pending").length,
+    // (0.6.14: when the participant last sent a message to an AI assistant, a time: the study's rules ask for
+    // some use in every week, and from the end of week 3 on no message goes to the study server)
+    last_message_at: (await load("lastMessageAt")) ?? null,
     history: await historyStates(), ...(await studyClock()),
   }, settings);
   await save("heartbeatAt", Date.now());
@@ -2653,13 +2727,17 @@ async function keepHeartbeatAlarm() {
   chrome.alarms.create("heartbeat", { when: next, periodInMinutes: HEARTBEAT_MINUTES });
 }
 
-// ---- a reminder while tracking stays paused ----
-// NOTE: [design thought] a pause is easy to forget: nothing else tells the participant that nothing
-// is being recorded. A notification comes pausedReminderDays after the pause began, and again after
-// as many more days while it stays paused; "Resume tracking" on it resumes, "Stay paused" waits for
-// the next one. The alarm is created only when missing (timed from pausedAt, so a worker restart
-// keeps the grid) and cleared whenever tracking is not paused.
-const PAUSED_REMINDER_DAYS = STUDY_CONFIG.pausedReminderDays ?? 5;
+// ---- reminders while tracking stays paused ----
+// NOTE: [design thought] a pause is easy to forget, and the study's rules count it (the popup shows them
+// before it pauses, ui/rules.html): under 12 hours nothing happens; from 12 hours on a reminder comes; after
+// 24 hours the week's payment is reduced for the paused time; after a week participation ends. A notification
+// comes pausedReminderHours after the pause began and at every full day of it (lib/modes.js pausedReminderAt),
+// and says which of these holds; "Resume tracking" on it resumes, "Stay paused" waits for the next one.
+// NOTE: [edge case callout] the alarm is created only when missing, timed from the pause's start and the last
+// reminder (pausedRemindedAt): Chrome may drop alarms when it restarts, and a reminder that fell due while
+// Chrome was closed comes a minute after its start instead of being skipped. It is cleared whenever tracking
+// is not paused.
+const PAUSED_REMINDER_HOURS = STUDY_CONFIG.pausedReminderHours ?? 12;
 async function keepPausedReminder() {
   const settings = await getSettings();
   if (!settings.paused || !settings.participantId) {
@@ -2669,21 +2747,28 @@ async function keepPausedReminder() {
   }
   if (await chrome.alarms.get("pausedReminder")) return;
   const since = settings.pausedAt || Date.now();
-  chrome.alarms.create("pausedReminder", { when: Math.max(since + PAUSED_REMINDER_DAYS * DAY_MS, Date.now() + 60000),
-                                           periodInMinutes: PAUSED_REMINDER_DAYS * 24 * 60 });
+  // (a reminder of an earlier pause does not count for this one)
+  const reminded = Math.max((await load("pausedRemindedAt")) ?? 0, since);
+  chrome.alarms.create("pausedReminder", { when: Math.max(Modes.pausedReminderAt(since, reminded, PAUSED_REMINDER_HOURS), Date.now() + 60000) });
 }
 
 async function remindPaused() {
   const settings = await getSettings();
   if (!settings.paused) return keepPausedReminder();          // resumed meanwhile: the alarm goes
-  const days = Math.max(1, Math.round((Date.now() - (settings.pausedAt || Date.now())) / DAY_MS));
+  const now = Date.now(), hours = (now - (settings.pausedAt || now)) / 3600000;
+  const ago = hours < 48 ? `${Math.max(1, Math.round(hours))} hours` : `${Math.round(hours / 24)} days`;
+  const rule = hours < 24 ? "Your payment is not affected yet: a pause of more than 24 hours reduces this week's payment."
+    : hours < 7 * 24 ? "This week's payment is reduced for the time paused, and a pause of more than a week ends your participation in the study."
+    : "A pause of more than a week ends your participation in the study: the study team will contact you.";
   chrome.notifications.create("paused", {
     type: "basic", iconUrl: "icons/icon128.png", title: "Advice Tracker: tracking is still paused",
-    message: `You paused tracking ${days} day${days === 1 ? "" : "s"} ago. Nothing is recorded while it is paused. Resume when you are ready.`,
+    message: `You paused tracking ${ago} ago. Nothing is recorded while it is paused. ${rule}`,
     buttons: [{ title: "Resume tracking" }, { title: "Stay paused" }],
     requireInteraction: true,
   });
+  await save("pausedRemindedAt", now);
   await count("reminded_paused");
+  await keepPausedReminder();                                 // (the alarm came once: the next reminder's is set)
 }
 
 // A change of what is tracked (paused or resumed, sites excluded or access withheld, the
@@ -2875,12 +2960,15 @@ async function onHeld(message) {
 
 // Feedback on the study, typed in the popup (0.6.12): free text, redacted on this computer as a free-text
 // answer is (names on the participant's list, e-mail addresses, phone numbers, ...) and sent with the
-// extension's version. Says whether it went now; else it waits in the queue (offline, or no participant ID yet).
+// extension's version. `kind` (0.6.14): "missed_advice" is a report of an advice conversation the extension
+// did not ask about (the popup's second box), anything else plain feedback. Says whether it went now; else it
+// waits in the queue (offline, or no participant ID yet).
 async function onFeedback(message) {
   const settings = await getSettings();
   const { text, counts } = Redact.redact(message.text, settings.redactNames);
-  await count("feedback");
-  return upload("feedback", { text, redacted: counts, version: chrome.runtime.getManifest().version }, settings);
+  const kind = message.kind === "missed_advice" ? "missed_advice" : "feedback";
+  await count(kind === "feedback" ? "feedback" : "feedback_missed_advice");
+  return upload("feedback", { kind, text, redacted: counts, version: chrome.runtime.getManifest().version }, settings);
 }
 
 // "Delete all data on this computer" (settings page): everything but the settings, and every
@@ -2893,12 +2981,13 @@ async function deleteAll() {
   // within 2 s has no content script, or is cut off from this extension)
   deletingSince = Infinity;
   // NOTE: [design thought] also kept: when the participant joined, when tracking was on and when the
-  // extension ran, this install's id, the reading's epoch (no conversation content); without them,
+  // extension ran, when they last sent a message, this install's id, the reading's epoch (no conversation content); without them,
   // conversations of the study period would count as past ones. Reading past conversations stops (the
   // participant agrees again to turn it on; other devices are still read), and nothing from before
   // now is ever read again (deletedAt is the floor of lib/history.js windows).
   const kept = {};
   for (const name of ["settings", "heartbeatAt", "joinedAt", "joinedEstimated", "joinedChecked", "pastBefore", "trackingLog", "aliveLog", "aliveGaps", "installId",
+                      "lastMessageAt", "pausedRemindedAt",
                       "historyEpoch", "hconfig", ...HISTORY_SITES.map((host) => `haccount:${host}`)]) {
     const value = await load(name);
     if (value !== undefined) kept[name] = value;
@@ -2917,6 +3006,7 @@ async function deleteAll() {
   await chrome.alarms.clearAll();
   await keepHeartbeatAlarm();
   await keepOutcomesAlarm();
+  await keepPausedReminder();
   await keepHistoryAlarm();
   await updateBadge();
   // past conversations were turned off with the data: reported as any opt-out is (the settings' own
@@ -3017,8 +3107,8 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   else if (kind === "ask") await askDue(name);         // the reply did not settle yet
   else if (kind === "remind") await onReminder(name);
   else if (kind === "checkin") {
-    // the follow-up's stage changed (it began, the day after "not yet", the planned day, the study's last
-    // day): the badge says so, and the question comes on the next page the participant opens
+    // the follow-up's stage changed (it began, two days after "not yet" or "too early to tell", the planned
+    // day, the study's last week): the badge says so, and the question comes on the next page the participant opens
     await updateBadge();
     await armFollowup(name);
   } else if (kind === "flush") await flushQueue();
@@ -3055,7 +3145,7 @@ async function resumeAll() {
   for (const [, record] of await loadAll("episode:")) {
     if (record.status === "open" && Modes.asksAtPauses(record.mode) && !ownText(record)) await armPause(record);
     if (record.status === "open" && record.heldBy === "history" && !record.walk) {
-      chrome.alarms.create(`heldcut|${record.id}`, { when: Math.max(record.openedAt + (await getSettings()).cutDays * DAY_MS, soon) });
+      chrome.alarms.create(`heldcut|${record.id}`, { when: Math.max(await cutOf(record.openedAt, await getSettings()), soon) });
     }
     if (record.checkin && !record.checkin.doneAt) await armFollowup(record.id);
     if (record.remindAt) chrome.alarms.create(`remind|${record.id}`, { when: Math.max(record.remindAt, soon) });

@@ -3,6 +3,71 @@
 What changed in each version of the Advice Tracker extension, newest first: for participants, and in
 the *Data notes* for the study team. How to install and use it: [README.md](README.md).
 
+## 0.6.14
+
+The study's updated rules (payments, reminders, pauses), as in the updated consent form.
+
+- **The study's five weeks**, counted from when you saved your Participant ID. New advice
+  conversations are collected until the end of week 3: a message sent later is no longer checked,
+  and nothing of it goes to the study server, unless it continues an advice conversation that began
+  before. Such a conversation is followed until the end of week 4 at the latest. The follow-up
+  questions go on until the end of week 5. The menu under the extension icon shows your week.
+  (Past conversations, if you turned them on, are still found after week 3.)
+- **Study rules page.** *Study rules: payments and participation*, under the extension icon and on
+  the settings page, shows your own calendar (when each week ends, when its payment comes, when the
+  extension stops collecting) and the rules for payments, reminders, quality review, late answers,
+  pauses and the end of participation.
+- **The follow-up, every two days.** "Not decided yet" is asked again two days later (the next day
+  before), and the pop-up about one conversation comes at most every two days. A decision you plan
+  to act on after the study, or do not know when, no longer brings the outcome questions at once:
+  it stays on your Outcomes page and is asked about again.
+- **Too early to tell.** When the outcome questions are ready and it is too early to tell how
+  things turned out, one click ("Too early to tell: ask me again in 2 days", on the Outcomes page
+  or in the pop-up) puts them off by two days; the conversation stays on your Outcomes page, and
+  "I can tell now" brings the questions back at once. The form itself no longer has the "It is too
+  early to tell" box, except in the study's last week and for past conversations.
+- **Week 5: everything is due.** In the last week of your study the outcome questions of every
+  advice conversation are open, whatever your answers so far (before: on the last day), and the
+  pages say by when they are due. Nothing puts them off then.
+- **The reminder every two days** now comes while anything on your Outcomes page is unanswered: a
+  conversation you have not decided about, a decision not acted on, outcome questions not answered
+  or too early to tell, a past conversation. It says: "Please check your Outcomes page for
+  unanswered questions: Have you decided or acted? Did you get an outcome?". No reminder once
+  everything is answered.
+- **Past conversations are due by the end of week 5**; the pages say so, and ask you to answer them
+  early, while you remember the details. One never answered is kept on your computer for 42 days
+  (30 before), so it does not disappear before the study ends.
+- **Past conversations: No or Skip.** The card and the invitation now say to answer **No** when a
+  past conversation was not advice (it is then sent with your No, with personal details removed,
+  so the study sees what the extension got wrong), and to use **Skip** for one you do not want to
+  annotate (nothing of it is sent). They said "No or Skip if it was not advice".
+- **Pausing shows the rules first.** *Pause tracking* under the extension icon opens a box with
+  what a pause means (under 12 hours: nothing; 12 to 24 hours: a reminder; 24 hours to 1 week: that
+  week's payment is reduced for the time paused; over 1 week: participation ends), and only
+  *Pause tracking now* pauses. The settings page shows the same while its box is ticked. A reminder
+  comes after 12 hours of pause and at every full day of it (every day before), and says which of
+  these holds.
+- **Report an advice conversation we missed**, under the extension icon: the feedback box, for a
+  conversation in which you asked for advice and the extension did not ask you about.
+- **Updating answers is encouraged, not required**; the pages say so, and that the study team
+  reviews answers later. After **No** the page says "We will not ask about this conversation again"
+  (it said the conversation "was removed from the study", though it is sent with your No since
+  0.6.12).
+- **How long you take to answer** each set of questions is sent with the answers, and **when you
+  last sent a message** to one of the five AI assistants goes with the twice-daily heartbeat (the
+  time only, never the text).
+- Two notifications still said "about 5-10 min" for the quick questions: about 1 to 2 minutes.
+- Data notes: `episode_rating`, `checkin` and `past_annotation` carry `timing` (`shown_at`,
+  `first_answer_at`, `last_answer_at`, `submitted_at`, `seconds` from the first answer finished to
+  the last; `null` from a page older than this version). `checkin.followup` gains `final_call`,
+  `tooEarly`, `tooEarlyAt`, and `checkin.answers.too_early` is `[]` when the form had the button.
+  `followup` events have a new `step` `outcome` (`answer` `early` or `yes`) and carry `due_at` and
+  `too_early`; `when` answers no longer set `due_at`. The heartbeat carries `last_message_at`.
+  `feedback` carries `kind` (`feedback` or `missed_advice`; count `feedback_missed_advice`).
+  `consent` events carry the text's version `2026-11-10c` (the settings page says when past
+  conversations are due). `config.js`: `newAdviceDays` 21, `continueDays` 28,
+  `pausedReminderHours` 12 (`pausedReminderDays` is gone). The study server needs no change.
+
 ## 0.6.13
 
 - **The times the extension states match the consent form**: about 1 to 2 minutes for the quick

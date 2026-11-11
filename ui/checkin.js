@@ -2,8 +2,9 @@
 // - the quick check-ins (ui/checkin.html): episodes not rated yet (a snoozed panel, a notification, "open
 //   in a tab"), and conversations found on the site itself from other devices;
 // - the outcomes page (ui/outcomes.html, 0.6.9): every advice conversation whose follow-up is not done,
-//   oldest first, at its stage (lib/modes.js followupStage: did you decide, did you act, when, or the
-//   outcome questions), and everything about past conversations (their questions, how reading them goes).
+//   oldest first, at its stage (lib/modes.js followupStage: did you decide, did you act, when, the
+//   outcome questions, or the wait after "too early to tell"), and everything about past conversations
+//   (their questions, how reading them goes). Both are due by the end of the study (0.6.14).
 // The questions come from lib/questions.js, the same lists the rating panel uses. (The conversation
 // itself goes with the answers, redacted; the follow-up asks how things went. Only an episode from
 // 0.4, whose conversation was to be sent after a review at its check-in, still shows it for review.)
@@ -61,6 +62,13 @@ async function main() {
   const pastList = document.getElementById("past-list");          // (the outcomes page's past conversations)
   const now = Date.now(), end = Modes.studyEnd(stored, STUDY_CONFIG.studyDays);
   queueCounts = countQueued(episodes, settings);
+  // the study's dates in the outcomes page's notes (ui/outcomes.html): when its last week begins, in which the
+  // outcome questions of every conversation are due, and when it ends (nothing before the participant joined)
+  if (OUTCOMES && Number.isFinite(end)) {
+    const day = (at) => new Date(at).toLocaleDateString(undefined, { month: "long", day: "numeric" });
+    for (const span of document.querySelectorAll(".due-by")) span.textContent = ` (${day(end)})`;
+    for (const span of document.querySelectorAll(".final-from")) span.textContent = ` (from ${day(end - Modes.FINAL_DAYS * 86400000)})`;
+  }
   // one question per site from its queue: the one an invitation (or a notification) opened this tab
   // for, else the site's current one
   const asked = params.get("item") || params.get("rate");
@@ -159,7 +167,7 @@ function ratingCard(episode, asked, settings) {
     <p class="meta">It looked like you asked the AI for advice here:</p>${quote(episode.openingText)}
     <div class="confirm" ${confirmed ? "hidden" : ""}><b>Did you ask for advice here?</b> <a class="whatis" href="#advice">what counts as advice?</a><br>
       <button type="button" class="yes">Yes</button> <button type="button" class="secondary no">No</button></div>
-    ${answered ? '<p class="meta">Your earlier answers are filled in; change any that are different now.</p>' : ""}
+    ${answered ? `<p class="meta">Your earlier answers are filled in; please update any that are different now. ${Questions.escape(Questions.UPDATE_NOTE)}</p>` : ""}
     <div class="form" ${confirmed ? "" : "hidden"}>
       ${Questions.render(questions)}
       <p class="meta">${Questions.escape(Questions.CONVERSATION_NOTES[episode.text])}</p>
@@ -170,14 +178,15 @@ function ratingCard(episode, asked, settings) {
   card.querySelector(".no").onclick = async () => {
     answeredHere.add(episode.id);
     await chrome.runtime.sendMessage({ type: "not_advice", id: episode.id });
-    card.innerHTML = '<p class="done">Thank you. This conversation was removed from the study.</p>';
+    card.innerHTML = `<p class="done">${Questions.escape(Questions.NOT_ADVICE_THANKS)}</p>`;
   };
   card.querySelector(".submit").onclick = async () => {
     const { answers, missing } = Questions.read(card, questions);
     if (missing.length) { alert("Please answer all the questions marked *."); return; }
     answeredHere.add(episode.id);
+    // (timing: how long the form took, lib/questions.js: it goes with the answers)
     await chrome.runtime.sendMessage({ type: "rating_submitted", id: episode.id, rating: { ...answers, ratedAt: Date.now() },
-                                       stage, start: episode.start, end: episode.end, basedOn: episode.versions });
+                                       timing: Questions.timing(card), stage, start: episode.start, end: episode.end, basedOn: episode.versions });
     card.innerHTML = `<p class="done">Thank you.${followupNote(episode, settings)}</p>`;
   };
   return card;
@@ -198,7 +207,7 @@ function itemCard(episode, settings, now) {
   const why = episode.closedBy === "cut" ? "a week has passed since you first asked" : "the topic changed";
   const intro = past ? `Before you joined the study, on ${when}, you had this conversation with the AI:`
     : decision.stage === "final" ? `This advice conversation from ${when} has ended (${why}). Your final answers, please:`
-    : answered ? "Your advice conversation continued (for example on your phone or another device). Change any answer that is different now:"
+    : answered ? "Your advice conversation continued (for example on your phone or another device). Please update any answer that is different now:"
     : episode.source === "app" ? `On ${when} you had this conversation, which was not recorded as it happened (for example on your phone or another device):`
     : `On ${when} you asked the AI for advice here${ended ? " (this conversation has ended)" : ""}:`;
   const review = past ? Questions.transcript((episode.messages || []).slice(transcriptFrom(episode)), settings.redactNames || []) : null;
@@ -209,12 +218,15 @@ function itemCard(episode, settings, now) {
     <p class="meta intro">${Questions.escape(intro)}</p>${quote(episode.openingText || "")}
     <p class="meta"><a href="${Questions.escape(episode.url)}" target="_blank" rel="noopener">Open this conversation on ${Questions.escape(episode.site)}</a></p>
     ${past ? `<p class="meta"><b>You can earn ${Questions.escape(STUDY_CONFIG.pastReward)} for annotating this past conversation</b>
-      (up to ${STUDY_CONFIG.pastLimit} conversations; about 4 to 8 minutes each). Answer No or Skip if it was not advice: that is fine, and never
-      affects your participation. <a href="#" class="stop">Stop asking about past conversations</a></p>` : ""}
+      (up to ${STUDY_CONFIG.pastLimit} conversations; about 4 to 8 minutes each). If it was not advice, answer No: it is then sent with your No,
+      with personal details removed, so we can see what the extension got wrong. Skip is for a conversation you do not want to annotate:
+      nothing of it is sent. Both are fine, and never affect your participation. The study team reviews the answers: an annotation of
+      low quality is removed and not paid.
+      <a href="#" class="stop">Stop asking about past conversations</a></p>` : ""}
     <div class="confirm" ${confirmed ? "hidden" : ""}><b>Did you ask the AI for advice about your own situation in this conversation?</b> <a class="whatis" href="${OUTCOMES ? "checkin.html" : ""}#advice"${OUTCOMES ? ' target="_blank"' : ""}>what counts as advice?</a><br>
       <button type="button" class="yes">Yes</button> <button type="button" class="secondary no">No</button>
       ${past ? '<button type="button" class="secondary skip">Skip this one</button>' : ""}</div>
-    ${answered ? '<p class="meta">Your earlier answers are filled in; change any that are different now.</p>' : ""}
+    ${answered ? `<p class="meta">Your earlier answers are filled in; please update any that are different now. ${Questions.escape(Questions.UPDATE_NOTE)}</p>` : ""}
     <div class="form" ${confirmed ? "" : "hidden"}>
       ${Questions.render(questions)}
       ${review ? `<div class="item"><span class="q">Your conversation, as it will be sent with your answers</span>
@@ -235,7 +247,7 @@ function itemCard(episode, settings, now) {
   card.querySelector(".no").onclick = async () => {
     answeredHere.add(episode.id);
     await chrome.runtime.sendMessage({ type: "card_answer", id: episode.id, answer: "no" });
-    done("Thank you. This conversation was removed from the study.");
+    done(Questions.escape(Questions.NOT_ADVICE_THANKS));
   };
   for (const button of card.querySelectorAll(".skip")) {
     button.onclick = async () => {
@@ -257,14 +269,15 @@ function itemCard(episode, settings, now) {
     if (missing.length) { alert("Please answer all the questions marked *."); return; }
     if (past) {
       answeredHere.add(episode.id);
-      const reply = await chrome.runtime.sendMessage({ type: "past_submitted", id: episode.id, answers: { ...answers, answeredAt: Date.now() } });
+      const reply = await chrome.runtime.sendMessage({ type: "past_submitted", id: episode.id, answers: { ...answers, answeredAt: Date.now() },
+                                                       timing: Questions.timing(card) });
       // (not taken: it went meanwhile, annotated already here or on another computer, or the limit of 30 was reached)
       done(reply?.taken === false ? "This past conversation is no longer open: it was annotated already, or the limit of past conversations was reached. Your answers were not sent."
                                   : "Thank you. Your answers and this conversation were sent.");
     } else {
       answeredHere.add(episode.id);
       await chrome.runtime.sendMessage({ type: "rating_submitted", id: episode.id, rating: { ...answers, ratedAt: Date.now() },
-                                         stage: decision.stage, start: episode.start, end: episode.end, basedOn: episode.versions });
+                                         timing: Questions.timing(card), stage: decision.stage, start: episode.start, end: episode.end, basedOn: episode.versions });
       done(`Thank you.${followupNote(episode, settings)}`);
     }
   };
@@ -293,17 +306,22 @@ function recall(episode) {
 
 // A conversation whose follow-up is not done (outcomes page), at its stage (lib/modes.js followupStage):
 // when it begins, the question it waits for (the same as the pop-up's on the chat page), when it is asked
-// again, or the outcome questions (checkinCard). `all`: the outcome questions whatever the stage (?checkin=all).
+// again (after "not yet", a planned day, or "too early to tell"), or the outcome questions (checkinCard).
+// `all`: the outcome questions whatever the stage (?checkin=all).
 // An answer goes to the background, which says what follows (lib/modes.js followupAnswer); the card is then
 // built again from the record.
 // `askWhen`: the participant just answered "Not yet" to "Did you act?" on this card: it asks when they plan to
 function followupCard(episode, episodes, settings, stored, all = false, askWhen = false) {
-  const now = Date.now(), stage = all ? "outcome" : Modes.followupStage(episode, now, Modes.studyEnd(stored, STUDY_CONFIG.studyDays));
+  const now = Date.now(), end = Modes.studyEnd(stored, STUDY_CONFIG.studyDays);
+  const stage = all ? "outcome" : Modes.followupStage(episode, now, end);
   if (stage === "outcome") return checkinCard(episode, episodes, settings, stored);
   const card = newCard(episode, "followup");
   card.dataset.stage = stage;
   const checkin = episode.checkin, decision = checkin.decision || {};
   const day = (at) => Questions.escape(new Date(at).toLocaleDateString());
+  // when a waiting follow-up is asked again: at nextAt, or when the study's last week begins if that comes
+  // first (then its outcome questions are due: lib/modes.js lastCall)
+  const again = () => day(Math.min(checkin.nextAt, Modes.lastCall(checkin, end)));
   // (with two buttons, the first is the secondary one: "Not yet")
   const buttons = (pairs) => pairs.map(([answer, label], index) =>
     `<button type="button" class="${pairs.length > 1 && index === 0 ? "secondary" : ""}" data-answer="${answer}">${Questions.escape(label)}</button>`).join(" ");
@@ -311,10 +329,16 @@ function followupCard(episode, episodes, settings, stored, all = false, askWhen 
   if (stage === "later") {
     // (a check-in made before 0.6.9 has no askFrom: its outcome questions come on its day, dueAt)
     body = `<p class="meta">We will ask how this went from ${day(checkin.askFrom ?? checkin.dueAt)}${episode.status === "open" ? ", once the conversation has ended" : ""}.</p>`;
+  } else if (stage === "waiting" && Number.isFinite(checkin.dueAt)) {
+    // (a wait with a day for the outcome questions is the wait after "too early to tell": lib/modes.js followupAnswer)
+    body = `<p class="meta">On ${day(decision.tooEarlyAt ?? decision.at)} it was too early to tell how things turned out. We will ask again on ${again()}.</p>${buttons([["outcome:yes", "I can tell now"]])}`;
   } else if (stage === "waiting" && decision.decided === "no") {
-    body = `<p class="meta">You had not decided yet on ${day(decision.at)}. We will ask again on ${day(checkin.nextAt)}.</p>${buttons([["decided:yes", "I have decided now"]])}`;
+    body = `<p class="meta">You had not decided yet on ${day(decision.at)}. We will ask again on ${again()}.</p>${buttons([["decided:yes", "I have decided now"]])}`;
+  } else if (stage === "waiting" && !decision.plannedAt) {
+    // ("Later than that, or I am not sure" to "When do you plan to act on it?": asked again a week later)
+    body = `<p class="meta">On ${day(decision.at)} you had decided and were not sure when you would act on it. We will ask again on ${again()}.</p>${buttons([["acted:yes", "I have acted on it now"]])}`;
   } else if (stage === "waiting") {
-    body = `<p class="meta">You plan to act on your decision by about ${day(checkin.nextAt)}. We will ask again then.</p>${buttons([["acted:yes", "I have acted on it now"]])}`;
+    body = `<p class="meta">You plan to act on your decision by about ${day(decision.plannedAt)}. We will ask again on ${again()}.</p>${buttons([["acted:yes", "I have acted on it now"]])}`;
   } else if (stage === "decided") {
     body = `<p><b>${Questions.escape(Questions.FOLLOWUP.decided)}</b></p>${buttons([["decided:no", "Not yet"], ["decided:yes", "Yes"]])}`;
   } else if (askWhen && decision.acted === "no") {
@@ -348,7 +372,8 @@ function followupCard(episode, episodes, settings, stored, all = false, askWhen 
 // The follow-up card of an episode built again from its record as stored now (after an answer here, or
 // one given in the pop-up meanwhile); a follow-up that is done or gone says so
 async function rebuildFollowup(id, askWhen = false) {
-  const card = document.getElementById(`card-followup-${id}`);
+  // (its outcome questions' card, when "too early to tell" put them off)
+  const card = document.getElementById(`card-followup-${id}`) || document.getElementById(`card-checkin-${id}`);
   if (!card) return;
   const stored = await chrome.storage.local.get(null);
   const episode = stored[`episode:${id}`];
@@ -361,8 +386,18 @@ async function rebuildFollowup(id, askWhen = false) {
   card.replaceWith(followupCard(episode, episodes, stored.settings || {}, stored, false, askWhen));
 }
 
+// The outcome questions of a conversation: the end of its follow-up.
+// NOTE: [design thought] "It is too early to tell" completes the check-in only in the study's last week, when
+// the outcome questions are due whatever happened (lib/modes.js finalCall): the form then has its check box.
+// Before that it is a button that puts the questions off by two days (the background: followupAnswer), so
+// the conversation stays on this page as unanswered and the reminders go on. Where the background would not
+// take the button (?checkin=all shows the questions at any stage), the form keeps the check box.
 function checkinCard(episode, episodes, settings, stored) {
   const card = newCard(episode, "checkin");
+  const now = Date.now(), end = Modes.studyEnd(stored, STUDY_CONFIG.studyDays);
+  const final = Modes.finalCall(episode.checkin, now, end);
+  const canDefer = !final && Modes.followupStage(episode, now, end) === "outcome";
+  const questions = canDefer ? Questions.CHECKIN.filter((item) => item.key !== "too_early") : Questions.CHECKIN;
   const later = episodes.filter((other) => (other.related || []).includes(episode.id)).length;
   const days = Math.round((Date.now() - episode.openedAt) / 86400000);
   // (a tester's short follow-up time brings the check-in on the same day)
@@ -374,19 +409,34 @@ function checkinCard(episode, episodes, settings, stored) {
   card.innerHTML = `<h2>${Questions.escape(episode.site)} · ${new Date(episode.openedAt).toLocaleDateString()}</h2>
     <p>${ago} you asked an AI assistant for advice. What happened since?</p>${recall(episode)}
     ${later ? `<p class="meta">Since then you had ${later} more conversation(s) that looked related to this one.</p>` : ""}
-    ${Questions.render(Questions.CHECKIN)}
+    ${final ? `<p class="meta"><b>These answers are due by ${Questions.escape(new Date(end).toLocaleDateString())}, the end of your study</b>, even if you
+      have not acted yet or it is too early to tell how things turned out.</p>` : ""}
+    ${canDefer ? `<p class="meta">Is it too early to tell how things turned out?
+      <button type="button" class="secondary early">Too early to tell: ask me again in ${Modes.ASK_AGAIN_DAYS} days</button></p>` : ""}
+    ${Questions.render(questions)}
     ${review ? `<div class="item"><span class="q">Your conversation, as we will store it</span>
       <p class="meta">Names, e-mail addresses, phone numbers and similar details were removed automatically
         (${Questions.escape(removed)}). Delete anything else you do not want us to keep, then submit.</p>
       <textarea class="transcript">${Questions.escape(review.text)}</textarea></div>` : ""}
     <button type="button" class="submit">Submit check-in</button>`;
-  Questions.wire(card, Questions.CHECKIN);
+  Questions.wire(card, questions);
+  const early = card.querySelector(".early");
+  if (early) {
+    early.onclick = async () => {
+      card.dataset.busy = "yes";                  // (the storage listener leaves it to this answer)
+      await chrome.runtime.sendMessage({ type: "followup_answer", id: episode.id, step: "outcome", answer: "early", where: "page" });
+      await rebuildFollowup(episode.id);
+    };
+  }
   card.querySelector(".submit").onclick = async () => {
-    const { answers, missing } = Questions.read(card, Questions.CHECKIN);
+    const { answers, missing } = Questions.read(card, questions);
     if (missing.length) { alert("Please answer all the questions marked *."); return; }
     card.dataset.settled = "answered";            // (the storage listener leaves this card alone)
     const transcript = review ? card.querySelector(".transcript").value : null;
-    await chrome.runtime.sendMessage({ type: "checkin_submitted", id: episode.id, answers: { ...answers, answeredAt: Date.now() },
+    // (too_early: empty when the form had no such box, so every check-in holds the same answers; timing: how
+    // long the form took, lib/questions.js)
+    await chrome.runtime.sendMessage({ type: "checkin_submitted", id: episode.id, answers: { too_early: [], ...answers, answeredAt: Date.now() },
+                                       timing: Questions.timing(card),
                                        ...(review ? { transcript, edited: transcript !== review.text } : {}) });
     card.innerHTML = '<p class="done">Thank you, that completes this conversation.</p>';
   };
@@ -489,6 +539,9 @@ chrome.storage.onChanged.addListener((changes, area) => {
       checkin.innerHTML = `<p class="done">${episode?.checkin?.doneAt ? "This check-in was already answered elsewhere: nothing more to do here."
                                                                         : "This check-in is no longer open."}</p>`;
     }
+    // its outcome questions were put off elsewhere ("too early to tell" in the pop-up on a chat page): the card shows the wait
+    if (checkin && !checkin.dataset.settled && !checkin.dataset.busy && episode?.checkin && !episode.checkin.doneAt &&
+        episode.checkin.dueAt !== change.oldValue?.checkin?.dueAt) rebuildFollowup(id);
     // a follow-up answered elsewhere (the pop-up on a chat page): its card moves to the stage it is at now
     const followup = document.getElementById(`card-followup-${id}`);
     if (followup && !followup.dataset.busy && (!episode || episode.checkin?.decision?.at !== change.oldValue?.checkin?.decision?.at ||
