@@ -68,14 +68,39 @@ still open, otherwise a Chrome notification reminds you. At any time, click the 
 things are waiting.
 
 From a week after an advice conversation, a small pop-up on a chat site's page asks whether you made
-a decision about it. Everything about these follow-ups, and about past conversations, is also on the
-**Outcomes** page (extension icon → Outcomes); a Chrome notification reminds you of it every two
-days while a question waits.
+a decision about it and acted on it, and then how things turned out. If it is too early to tell, say
+so, and it asks again two days later. Everything you have not answered yet, and the past
+conversations, are on the **Outcomes** page (extension icon → Outcomes); a Chrome notification
+reminds you of it every two days while anything there is unanswered. In week 5 of your study the
+outcome questions of every advice conversation are due, even if you have not acted yet or it is too
+early to tell.
+
+## The study's weeks and rules
+
+The study lasts five weeks, counted from when you saved your Participant ID. Click the extension
+icon → **Study rules: payments and participation** for your own calendar, what you are paid and
+when, and the rules (they are the consent form's). In short:
+
+- **Weeks 1 to 3:** use the AI assistants as usual. The extension looks for advice conversations and
+  asks its quick questions.
+- **Week 4:** no new advice conversations are collected. One that began before is still followed if
+  you continue it, until the end of the week. Follow-up questions go on.
+- **Week 5:** the outcome questions of every advice conversation, and the questions about past
+  conversations, are due by the end of the week.
+- **Pausing:** under 12 hours nothing happens; from 12 to 24 hours you get a reminder and your
+  payment is not affected; from 24 hours to 1 week your payment for that week is reduced for the
+  time paused; after more than 1 week your participation in the study ends.
+- **Your answers are reviewed** by the study team. Updating them when a conversation goes on is
+  encouraged, not required. If the extension asks about a conversation that was not advice, answer
+  **No**; if it misses one, please use **Report an advice conversation we missed**.
 
 ## What it collects, and your controls
 
 - It works only on the five chat sites above and reads nothing else (no browsing history, no
   passwords, no other websites).
+- **From the end of week 3 of your study, new conversations are no longer checked**: a message is
+  sent to the study's AI model only if it continues an advice conversation that began before, and
+  from the end of week 4 none is (past conversations, if you turned them on, are still read).
 - **Only the messages you send while tracking is on are processed** (your participant ID is set,
   tracking is not paused, and the site is not excluded). Opening an old chat from the sidebar never
   sends anything; if you continue an old chat, only your new messages are checked. The one
@@ -95,7 +120,7 @@ days while a question waits.
   checked by the study's AI model like those on the web; a conversation's text is sent only with
   your answers about it, or with your No (for a past one, the conversation is shown to you as it
   will be sent).
-  The text of a conversation found but not answered stays on your computer at most 30 days. To keep
+  The text of a conversation found but not answered stays on your computer at most 42 days. To keep
   a conversation out, pause tracking: turning the extension off does not keep out what you type
   on your phone meanwhile. "Delete all data" also turns past conversations off.
 - **To find advice conversations**, each message you send is checked by the study's own AI model,
@@ -120,19 +145,24 @@ days while a question waits.
   Names, e-mail addresses, phone numbers, web and street addresses, long numbers and similar
   details are replaced with placeholders such as `[NAME]` on your computer before anything is sent;
   add the names that matter most to you in the settings.
-- Twice a day the extension sends a heartbeat with counts (found / rated / not advice) and whether
-  tracking is on: paused or not, and on which of the five sites it can capture. A change of these
-  is reported when it happens, and removing the extension is reported too. The study team uses
-  this to know on which days the extension was tracking (see the study e-mail for what this means
-  for payment).
+- Twice a day the extension sends a heartbeat with counts (found / rated / not advice), whether
+  tracking is on (paused or not, and on which of the five sites it can capture), and when you last
+  sent a message to one of the five AI assistants (the time only, never the text). A change of what
+  is tracked is reported when it happens, and removing the extension is reported too. The study team
+  uses this to know when the extension was tracking and in use (see *Study rules* for what a pause
+  means for payment).
+- With each set of answers the extension sends how long the questions took you (when they appeared,
+  when you finished the first and the last answer, when you pressed Submit). The study team uses it
+  when it reviews the quality of the answers.
 - An advice conversation ends when the topic changes, or a week after your first advice request in
   it, whichever comes first.
 - Settings page (icon → ⋮ → Options): **pause** tracking, **exclude sites**, list **names to
   remove** from conversations before they are sent, turn **past conversations** on or off,
   **export** or **delete all** data on this computer.
-- **Feedback** you type under the extension icon (*Send feedback on the study*) is sent to the study
-  team with your participant ID, with names on your list, e-mail addresses, phone numbers and similar
-  details replaced on your computer first, as for conversations.
+- **Feedback** you type under the extension icon (*Send feedback on the study*, or *Report an advice
+  conversation we missed*) is sent to the study team with your participant ID, with names on your
+  list, e-mail addresses, phone numbers and similar details replaced on your computer first, as for
+  conversations.
 - Putting a panel off ("later") or answering "No" never affects your participation.
 
 Full privacy policy: the link in the study e-mail.

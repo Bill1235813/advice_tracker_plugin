@@ -15,7 +15,8 @@
   #history label.agree { margin-top: 12px; padding: 8px 10px; border: 1px solid #d9d9d3; border-radius: 8px; cursor: pointer; }
 </style>
 <h1>Advice Tracker settings</h1>
-<p class="help">The study is about asking an AI assistant for advice on your own life. <a href="../ui/checkin.html#advice" target="_blank">What counts as advice?</a></p>
+<p class="help">The study is about asking an AI assistant for advice on your own life. <a href="../ui/checkin.html#advice" target="_blank">What counts as advice?</a>
+  · <a href="../ui/rules.html" target="_blank">Study rules: payments and participation</a></p>
 <label>Participant ID <span class="help">(your Prolific ID)</span></label>
 <input type="text" id="participantId">
 <label>When to ask about an advice conversation <span class="help">(set by the research team; a conversation already under way keeps the mode it started with)</span></label>
@@ -40,7 +41,12 @@
 <textarea id="excludedHosts" rows="3"></textarea>
 <label>Names to remove from conversations before they are sent <span class="help">(one per line: your name, family, employer)</span></label>
 <textarea id="redactNames" rows="3"></textarea>
-<label><input type="checkbox" id="paused"> Pause tracking <span class="help">(the study team sees when tracking is paused; a reminder comes every day)</span></label>
+<label><input type="checkbox" id="paused"> Pause tracking <span class="help">(the study team sees when tracking is paused; press Save to pause or resume)</span></label>
+<!-- the study's rules for a pause, shown while the box is ticked (options.js; the popup shows them before it pauses) -->
+<div id="pause-rules" class="help" hidden>Nothing is recorded while tracking is paused, and the study's rules count the pause: under 12 hours,
+  nothing happens; from 12 to 24 hours, you get a reminder and your payment is not affected; from 24 hours to 1 week, your payment for
+  that week is reduced for the time paused; over 1 week, your participation in the study ends.
+  <a href="../ui/rules.html" target="_blank">Study rules</a></div>
 <section id="history">
   <h2>Past conversations and other devices</h2>
   <p>Advice Tracker also reads your conversation list on ChatGPT, Claude, Gemini, Grok and Perplexity, in this browser,
@@ -53,7 +59,10 @@
     <li><b>Past conversations</b> (optional): conversations from up to 90 days before you joined the study. When one looks
       like you asked for advice, you are invited (on that site's page, at most twice a day) to answer questions about it in a
       separate tab. <b>You can earn $2 for each past conversation you annotate</b>, up to 30 ($60); each takes about 4 to 8
-      minutes. Answering No or Skip is always fine and never affects your participation or your base payment.</li>
+      minutes. Answering No (it was not advice: the conversation is then sent with your No, with personal details removed) or Skip (you
+      do not want to annotate it: nothing of it is sent) is always fine and never affects your participation or your base payment. The questions about
+      past conversations are due by the end of the study (week 5); please answer them early, while you remember the details. The
+      study team reviews the answers: an annotation of low quality is removed and not paid.</li>
   </ul>
   <p>Your messages are checked by the study's own AI model, with names and other personal details removed first; it keeps only a
     yes or no. A conversation's text is sent to the study only together with your answers about it, or with your No when you answer that it was not advice (so the study can see what its model got wrong), in both cases with personal details removed.

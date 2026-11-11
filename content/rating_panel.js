@@ -10,7 +10,7 @@
 // fourth one (combined mode) asks only step 1, quoting the request, right after the first advice
 // turn, and also disappears by itself (after Yes, the ratings page later starts at step 2). A fifth
 // one (0.6.9) is the follow-up about a conversation from a week or more ago: did you decide, did you
-// act (offerFollowup).
+// act, and then the way to its outcome questions, or "too early to tell" (offerFollowup).
 // An open page stays current: the background sends it the episode's newer state (more turns, the
 // complete reply, or a new request when the episode ended), and everything typed into it stays.
 // All are rendered inside shadow roots, so the host page's CSS cannot restyle them and vice versa.
@@ -20,7 +20,7 @@
   const INTRO = {
     first: "It looked like you asked the AI for advice here. A few quick questions about the answer so far:",
     temp: "You moved to another conversation. How was the advice so far? You can update these answers later.",
-    update: "Your advice conversation continued. Change any answer that is different now:",
+    update: "Your advice conversation continued. Please update any answer that is different now:",
     final: "The topic changed, so this advice conversation has ended. Your final answers, please:",
     end: "This conversation seems to have ended. It looked like you asked the AI for advice here:",
     // the final page of an episode that a week after its first request is complete (closedBy "cut")
@@ -200,7 +200,7 @@
             ${Questions.render(questions)}
             <div class="actions"><button class="primary" id="submit">${answered ? "Save" : "Submit"}</button></div>
           </div>
-          <div class="note">${answered ? "Your earlier answers are filled in." : `About 1 to 2 minutes now, and a few follow-up questions from about ${Questions.duration(settings.followupSeconds)} after you first asked.`}
+          <div class="note">${answered ? `Your earlier answers are filled in. ${Questions.escape(Questions.UPDATE_NOTE)}` : `About 1 to 2 minutes now, and a few follow-up questions from about ${Questions.duration(settings.followupSeconds)} after you first asked.`}
             ${Questions.escape(Questions.CONVERSATION_NOTES[episode.text] || Questions.CONVERSATION_NOTES.with_answers)}</div>
         </div>
       </div>`;
@@ -266,14 +266,15 @@
       if (!chrome.runtime?.id) { shadow.querySelector(".body").innerHTML = `<p class="done">${UPDATED}</p>`; return; }
       send({ type: "not_advice", id: current.id });
       host.update = () => true;          // nothing more to show about this episode
-      shadow.querySelector(".body").innerHTML = '<p class="done">Thank you. This conversation was removed from the study.</p>';
+      shadow.querySelector(".body").innerHTML = `<p class="done">${Questions.escape(Questions.NOT_ADVICE_THANKS)}</p>`;
       setTimeout(() => finish(null), 2500);
     };
     byId("submit").onclick = () => {
       const { answers, missing } = Questions.read(shadow, questions);
       if (missing.length) { alert("Please answer all the questions marked *."); return; }
+      // (timing: how long the form took, lib/questions.js: it goes with the answers)
       finish({ type: "rating_submitted", stage: current.stage, start: current.start, end: current.end, basedOn: current.basedOn,
-               rating: { ...answers, ratedAt: Date.now() } });
+               rating: { ...answers, ratedAt: Date.now() }, timing: Questions.timing(shadow) });
     };
   }
 
@@ -348,7 +349,7 @@
   // "Update your ratings?" (or "Rate this conversation now?" before any answer); Yes opens the
   // ratings page with the conversation as it is now and the earlier answers filled in.
   function offerUpdate(episode, settings) {
-    const question = episode.answered ? "Your advice conversation continued. Update your ratings?"
+    const question = episode.answered ? "Your advice conversation continued. Update your ratings? (encouraged if anything changed)"
                                       : "Rate this advice conversation now? (about 1 to 2 minutes)";
     const html = `${Questions.escape(question)} <a href="#" id="whatis" class="whatis">what counts as advice?</a>`;
     return popup(episode, settings, html, "offer_update", "update_answer", async () => {
@@ -385,14 +386,16 @@
     if (invite.source === "past") {
       html = `Advice Tracker found a conversation on ${site} from ${date}, before you joined the study, that may have been a request for advice.` +
              ' <a href="#" id="whatis" class="whatis">what counts as advice?</a>' +
-             `<br><b>You can earn ${Questions.escape(invite.reward)} for each past conversation you annotate</b> (up to ${invite.pastLimit}; about 4 to 8 minutes each).` +
-             '<div class="left">Answer No or Skip if it was not advice: that is fine, and never affects your participation.' +
+             `<br><b>You can earn ${Questions.escape(invite.reward)} for each past conversation you annotate</b> (up to ${invite.pastLimit}; about 4 to 8 minutes each` +
+             `${invite.dueBy ? `; due by ${Questions.escape(new Date(invite.dueBy).toLocaleDateString())}, the end of the study` : ""}).` +
+             '<div class="left">If it was not advice, please answer No there (it shows us what the extension got wrong); Skip is for one you do ' +
+             'not want to annotate. Both are fine, and never affect your participation.' +
              ' <a href="#" id="stop">Stop asking about past conversations</a></div>';
     } else if (invite.stage === "final") {
       html = `Your advice conversation on ${site} from ${date} has ended (${invite.closedBy === "cut" ? "a week has passed since you first asked" : "the topic changed"}). ` +
              "Your final answers, please?";
     } else if (invite.update) {
-      html = `Your advice conversation on ${site} from ${date} continued, for example on your phone or another device. Update your answers?`;
+      html = `Your advice conversation on ${site} from ${date} continued, for example on your phone or another device. Update your answers? (encouraged if anything changed)`;
     } else {
       html = `Advice Tracker found a conversation on ${site} from ${date} that was not recorded as it happened (for example on your phone ` +
              'or another device). It may have been a request for advice. <a href="#" id="whatis" class="whatis">what counts as advice?</a> ' +
@@ -407,9 +410,11 @@
   // to; once the outcome questions are ready, it offers the outcomes page. The background decides what
   // follows each answer (it answers the message with the follow-up's stage after it). The conversation is
   // named by its site and date, and by the participant's own one-sentence summary only on that site's own
-  // page (item.summary is empty elsewhere). Nobody is pressed: "Not yet" minimizes it (asked again the next
-  // day), and so does leaving it alone for settings.updateSeconds while it is on the screen. Minimized, it
+  // page (item.summary is empty elsewhere). Nobody is pressed: "Not yet" minimizes it (asked again two days
+  // later), and so does leaving it alone for settings.updateSeconds while it is on the screen. Minimized, it
   // is a small bar that opens again on a click, or goes with ✕. Returns false when a page or another pop-up is open.
+  // The outcome questions (0.6.14): before the study's last week "it is too early to tell" puts them off by
+  // two days (settings.askAgainDays); in that week (item.final) they are due, and the pop-up says so.
   // NOTE: [edge case callout] an earlier follow-up pop-up, or its minimized bar, is replaced: the chat sites are
   // single-page apps, so a bar left on a tab open for days would otherwise keep every later question off it
   // (the background offers one at most every few hours, and only when it is due)
@@ -437,6 +442,8 @@
     const byId = (id) => shadow.getElementById(id);
     const box = shadow.querySelector(".followup");
     let left = settings.updateSeconds, seen = false, touched = false;
+    let final = Boolean(item.final);
+    const again = `in ${settings.askAgainDays ?? 2} days`;
     const minimize = (state) => {
       clearInterval(timer);
       box.classList.add("minimized");
@@ -475,8 +482,13 @@
       if (name === "when") {
         step.innerHTML = `<b>${escape(Questions.FOLLOWUP.when)}</b><select id="when">${Questions.ACT_WHEN.map(([value, label]) =>
           `<option value="${value}">${escape(label)}</option>`).join("")}</select>${buttons([["ok", "OK"]])}`;
+      } else if (name === "outcome" && final) {
+        step.innerHTML = "<b>The questions about how it turned out are due by the end of the study</b> (about 4 to 8 minutes), " +
+          `even if you have not acted yet or it is too early to tell.${buttons([["later", "Later"], ["open", "Open the Outcomes page"]])}`;
       } else if (name === "outcome") {
-        step.innerHTML = `<b>A few questions about how it turned out are ready</b> (about 4 to 8 minutes).${buttons([["later", "Later"], ["open", "Open the Outcomes page"]])}`;
+        step.innerHTML = `<b>A few questions about how it turned out are ready</b> (about 4 to 8 minutes).${buttons([["later", "Later"], ["open", "Open the Outcomes page"]])}` +
+          `<div class="left"><a href="#" id="early">It is too early to tell how it turned out: ask me again ${again}</a></div>`;
+        byId("early").onclick = (event) => { event.preventDefault(); clicked("outcome", "early"); };
       } else {
         step.innerHTML = `<b>${escape(Questions.FOLLOWUP[name])}</b>${buttons([["no", "Not yet"], ["yes", "Yes"]])}`;
       }
@@ -495,8 +507,9 @@
     const clicked = async (name, value) => {
       touched = true;
       byId("left").textContent = "";
-      // (the outcome step only opens the page, or minimizes: its buttons stay usable when the bar is opened again)
-      if (name === "outcome") {
+      // (the outcome step's buttons only open the page, or minimize: they stay usable when the bar is opened again;
+      // its "too early to tell" is an answer, sent below)
+      if (name === "outcome" && value !== "early") {
         if (value === "open") { send({ type: "open_outcomes", id: item.id }); host.dismiss(); }
         else minimize("later: it waits on your Outcomes page");
         return;
@@ -511,10 +524,13 @@
       if (!reply) { byId("step").innerHTML = `<p class="done">${UPDATED}</p>`; return; }
       // "Not yet" to "did you act?": the follow-up stays there, and the pop-up asks when
       if (name === "acted" && answer === "no" && reply.stage === "acted") return showStep("when");
+      // ("too early to tell" was not taken: the study's last week began meanwhile, and the questions are due)
+      if (name === "outcome" && reply.stage === "outcome") final = true;
       if (["decided", "acted", "outcome"].includes(reply.stage)) return showStep(reply.stage);
       if (reply.stage === "waiting") {
-        return finish(name === "decided" ? "Thank you. We will ask again tomorrow."
-                                         : `Thank you. We will ask again around ${escape(new Date(reply.nextAt).toLocaleDateString())}.`, "asks again later");
+        return finish(name === "decided" ? `Thank you. We will ask again ${again}.`
+          : name === "outcome" ? `Thank you. We will ask again ${again}; until then it stays on your Outcomes page.`
+          : `Thank you. We will ask again around ${escape(new Date(reply.nextAt).toLocaleDateString())}.`, "asks again later");
       }
       finish("Already answered elsewhere: nothing more to do here.", null);
     };

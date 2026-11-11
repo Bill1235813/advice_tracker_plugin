@@ -9,28 +9,44 @@
   button.primary { background: #4f5bd5; color: #fff; border-color: #4f5bd5; }
   pre { max-height: 160px; overflow: auto; background: #f3f4fb; padding: 6px; font-size: 11px; white-space: pre-wrap; }
   textarea { width: 100%; box-sizing: border-box; margin-top: 6px; padding: 6px; border: 1px solid #d9d9d3; border-radius: 6px; font: inherit; resize: vertical; }
-  .note { color: #647084; font-size: 12px; margin-top: 4px; }
+  .note { color: #647084; font-size: 12px; margin-top: 4px; } .note ul { margin: 4px 0 0; padding-left: 18px; }
 </style>
 <h1>Advice Tracker</h1>
 <div id="status"></div>
+<!-- where the participant is in the study's five weeks (popup.js) -->
+<div class="note" id="study-week"></div>
 <div class="row"><span>Advice conversations found</span><b id="n-found">0</b></div>
 <div class="row"><span>Waiting for your answers</span><b id="n-pending">0</b></div>
-<div class="row"><span>Follow-up questions</span><b id="n-due">0</b></div>
+<div class="row"><span>Follow-ups not finished</span><b id="n-due">0</b></div>
 <div class="row"><span>Not advice</span><b id="n-removed">0</b></div>
 <div class="row"><span>Past conversations to annotate</span><b id="n-past">0</b></div>
 <div id="history-note"></div>
 <button class="primary" id="open-checkin">Quick check-ins</button>
 <button class="primary" id="open-outcomes">Outcomes (follow-ups, past conversations)</button>
 <button id="pause">Pause tracking</button>
+<!-- the study's rules for a pause, shown before tracking pauses (0.6.14): only the box's own button pauses -->
+<div id="pause-box" hidden>
+  <div class="note"><b>Before you pause:</b> nothing is recorded while tracking is paused, and the study's rules count the pause.
+    <ul>
+      <li>Under 12 hours: nothing happens.</li>
+      <li>12 to 24 hours: you get a reminder; your payment is not affected.</li>
+      <li>24 hours to 1 week: your payment for that week is reduced for the time paused.</li>
+      <li>Over 1 week: your participation in the study ends.</li>
+    </ul></div>
+  <button class="primary" id="pause-confirm">Pause tracking now</button>
+  <button id="pause-cancel">Cancel</button>
+</div>
 <button id="debug">Show captured messages on this tab</button>
 <button id="feedback">Send feedback on the study</button>
+<button id="missed">Report an advice conversation we missed</button>
 <div id="feedback-box" hidden>
-  <textarea id="feedback-text" rows="5" maxlength="5000" placeholder="Anything you want the study team to know: what worked, what did not, a question..."></textarea>
+  <textarea id="feedback-text" rows="5" maxlength="5000"></textarea>
   <div class="note">Sent to the study team with your participant ID. Names on your settings list, e-mail addresses, phone
     numbers and similar details are removed first.</div>
   <button class="primary" id="feedback-send">Send</button>
   <div class="note" id="feedback-status"></div>
 </div>
+<button id="rules">Study rules: payments and participation</button>
 <button id="options">Settings</button>
 <pre id="debug-out" hidden></pre>
 <script src="../config.js"></script>
