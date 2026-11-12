@@ -3,6 +3,37 @@
 What changed in each version of the Advice Tracker extension, newest first: for participants, and in
 the *Data notes* for the study team. How to install and use it: [README.md](README.md).
 
+## 0.6.16
+
+Your conversation on the Outcomes page, for you to review, as the consent form describes it.
+
+- **Your conversation, with the outcome questions.** When the outcome questions of an advice
+  conversation come, the Outcomes page now shows you that conversation (your messages and the AI's
+  replies, from your message that asked for advice on) with names, e-mail addresses, phone numbers
+  and similar details already removed, in a box you can edit. You can delete anything else you do
+  not want us to keep. The conversation is then stored on our study server with your answers. (As
+  before, the conversation also went with your quick answers, as the note under those questions
+  says; that has not changed.)
+- **Past conversations** show their conversation in the same box, with their questions (before, it
+  was shown but could not be edited). A past conversation you edited is sent only as you left it.
+- No box where a conversation's text stays on your computer (a site you excluded).
+- The README no longer says to ask the study team to delete submitted data.
+- Data notes: `checkin` now carries the conversation as the participant left it in the box:
+  `transcript` (one text, `USER: ...` and `ASSISTANT: ...` paragraphs from the opening turn on,
+  redacted once more since the participant can type in the box), `transcript_edited` (whether it
+  differs from the text shown) and `transcript_chars` (`shown`, `kept`: the length of the text as
+  shown and as left). The unedited conversation of the same episode is in its `episode_rating` and
+  `episode_transcript` events (the same turns, as a list of messages; the text shown is these
+  messages joined as `ROLE: content` with an empty line between), so how much a participant
+  edited can be measured. No `transcript` in a `checkin` whose text stays on the computer or whose
+  record no longer holds it. `past_annotation` carries `transcript_edited` and `transcript_chars`
+  too; when the participant edited, its `transcript` (the list of messages) is `null` and
+  `transcript_reviewed` holds the text as they left it, so what they deleted from a past
+  conversation never reaches the server (`redacted` still counts what was removed automatically
+  from the text shown, and `turns` the conversation's turns). Events of older versions have none
+  of these fields (only a `checkin` of an episode from 0.4 had `transcript` and
+  `transcript_edited`).
+
 ## 0.6.15
 
 A reminder at the end of each study week, messages from the study team, numbered labels for

@@ -16,7 +16,15 @@ version (one-click install) is in preparation; until then, follow the steps belo
 
 **How it works, in detail:** [`docs/advice-tracker-design.pdf`](docs/advice-tracker-design.pdf).
 
-## What's new in version 0.6.15
+## What's new in version 0.6.16
+
+- **Your conversation on the Outcomes page.** With the outcome questions of an advice conversation,
+  and with the questions about a past conversation, the Outcomes page now shows you the
+  conversation (your messages and the AI's replies) with names, e-mail addresses, phone numbers and
+  similar details already removed, in a box you can edit. You can delete anything else you do not
+  want us to keep; the conversation is then stored with your answers.
+
+In 0.6.15:
 
 - **A reminder at the end of a study week.** At the end of weeks 1, 2 and 3, and at the end of week
   5, the extension looks at whether you were active and whether due tasks are left: in weeks 1 to 3
@@ -139,7 +147,9 @@ so, and it asks again two days later. Everything you have not answered yet, and 
 conversations, are on the **Outcomes** page (extension icon → Outcomes); a Chrome notification
 reminds you of it every two days while anything there is unanswered. In week 5 of your study the
 outcome questions of every advice conversation are due, even if you have not acted yet or it is too
-early to tell.
+early to tell. With the outcome questions, the Outcomes page shows you the conversation with names,
+e-mail addresses, phone numbers and similar details already removed, in a box you can edit: delete
+anything else you do not want us to keep before you submit.
 
 ## The study's weeks and rules
 
@@ -210,6 +220,11 @@ when, and the rules (they are the consent form's). In short:
   about (your messages and the AI's replies, from your message that asked for advice on; earlier
   messages of the chat are not sent); the complete conversation is sent once more when it ends (if
   tracking is paused then, once it is on again; never if you exclude the site).
+- With the outcome questions of an advice conversation, the **Outcomes** page shows you that
+  conversation (your messages and the AI's replies) with personal details already removed, in a box
+  you can edit. You can delete anything else you do not want us to keep; the conversation is then
+  stored on our study server with your answers. The questions about a past conversation show its
+  conversation in the same way, and a past conversation you edited is sent only as you left it.
 - When you answer **No** (not advice), that part of the conversation is sent with your No in the
   same way (from the message the model took for an advice request on, with personal details
   removed), so the study team can see what the model got wrong; the conversation is then deleted
@@ -287,12 +302,11 @@ Full privacy policy: the link in the study e-mail.
   `chrome://extensions` click the circular reload arrow on the Advice Tracker card and reload
   your chat tabs. (The Web Store version will update itself.)
 - **Uninstall / withdraw**: `chrome://extensions` → **Remove** on the card. To also wipe the local
-  data first: Options → *Delete all data on this computer*. Tell the study team if you want your
-  submitted data deleted as well.
+  data first: Options → *Delete all data on this computer*.
 
 ## For reviewers and developers
 
-- `manifest.json` (Manifest V3, version 0.6.15): permissions `storage`, `unlimitedStorage` (no
+- `manifest.json` (Manifest V3, version 0.6.16): permissions `storage`, `unlimitedStorage` (no
   install warning), `alarms`, `notifications`, and host permissions for the five chat sites (plus
   `localhost` for the mock test page); no remote code.
 - Past and other-device conversations (0.6; past ones opt-in, other devices always read since
@@ -349,14 +363,23 @@ Full privacy policy: the link in the study e-mail.
     answered in the study's last week, when they are due; and the answers with their times:
     `decided`, `decidedAt`, `acted`, `actedAt`, `actWhen`, `plannedAt`, `tooEarly`: how often "too
     early to tell" put them off, `tooEarlyAt`); `too_early` is `[]` when the form had the button
-    instead of the box (before the last week); for an episode from 0.4 also the conversation as
-    reviewed there (`transcript`, `transcript_edited`).
+    instead of the box (before the last week). Since 0.6.16 also the conversation as the
+    participant left it in the review box of the outcomes page (`ui/checkin.js` `showReview`):
+    `transcript` (a text, `USER: ...` and `ASSISTANT: ...` paragraphs from the opening turn on,
+    redacted once more), `transcript_edited` (whether they changed the text shown) and
+    `transcript_chars` (`shown`, `kept`: how long the text was as shown and as they left it); none
+    where the text stays on the computer. The unedited conversation is in the episode's
+    `episode_rating` and `episode_transcript`, so the two can be compared. (Before 0.6.16 only an
+    episode from 0.4 had the box.)
   - `followup`: each answer to the follow-up's questions (`step` decided, acted, when or outcome,
     `answer` (for outcome: `early`, too early to tell, or `yes`, "I can tell now"), `where` popup or
     page, the `stage` after it, `days_since_request`, `next_at`, `planned_at`, `due_at`,
     `too_early`, `shown`, `study_end`; no text).
   - `past_annotation` (answers + the redacted transcript of a past conversation, with a
-    `fingerprint` to pay each once), `past_skipped`, and `consent` (`feature`, `accepted`, `version`).
+    `fingerprint` to pay each once; since 0.6.16 `transcript_edited` and `transcript_chars` as in
+    `checkin`, and when the participant edited the conversation in its review box, `transcript` is
+    `null` and `transcript_reviewed` holds the text as they left it: the unedited one is not
+    sent), `past_skipped`, and `consent` (`feature`, `accepted`, `version`).
   - `prompt`: a question shown (kinds include `invite` and `card`); it can end `withdrawn` (the pop-up
     or invitation was taken away because the participant answered the same question elsewhere).
   - `heartbeat` (twice a day) and `status` (on a change): `tracking`, `paused`, `paused_at`,
