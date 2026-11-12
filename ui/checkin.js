@@ -6,8 +6,8 @@
 //   outcome questions, or the wait after "too early to tell"), and everything about past conversations
 //   (their questions, how reading them goes). Both are due by the end of the study (0.6.14).
 // The questions come from lib/questions.js, the same lists the rating panel uses. (The conversation
-// itself goes with the answers, redacted; the follow-up asks how things went. Only an episode from
-// 0.4, whose conversation was to be sent after a review at its check-in, still shows it for review.)
+// itself goes with the quick answers, redacted. The outcomes page shows it once more with the outcome
+// questions, and a past one with its questions, in a box the participant can edit: 0.6.16, showReview.)
 //   ?rate=<id>      opened from a notification or the panel's "open in a tab"; also works for an
 //                   episode that is still going on, or that has answers to update (&stage=<stage>:
 //                   the question the panel asked, e.g. temp after a move to another site)
@@ -127,9 +127,9 @@ function conversationGoes(episode, settings) {
   return Questions.conversationGoes(episode, isExcluded(new URL(episode.url).hostname, settings.excludedHosts || []));
 }
 
-// The conversation of an episode from 0.4, for its review: the record's copy once the episode
-// ended; while it goes on, its turns in the chat's latest copy, if they are still there unchanged
-// (lined up as the background does: older turns may have come in above since)
+// The conversation of an episode (its turns start..end), for its review: the record's copy once the
+// episode ended; while it goes on, its turns in the chat's latest copy, if they are still there
+// unchanged (lined up as the background does: older turns may have come in above since)
 function reviewMessages(episode, stored) {
   if (episode.messages) return episode.messages;
   if (episode.status !== "open") return [];
@@ -210,8 +210,8 @@ function itemCard(episode, settings, now) {
     : answered ? "Your advice conversation continued (for example on your phone or another device). Please update any answer that is different now:"
     : episode.source === "app" ? `On ${when} you had this conversation, which was not recorded as it happened (for example on your phone or another device):`
     : `On ${when} you asked the AI for advice here${ended ? " (this conversation has ended)" : ""}:`;
-  // (a past one shows its conversation as it will be sent, from the advice request on: redacted below)
-  const review = past ? (episode.messages || []).slice(transcriptFrom(episode)) : null;
+  // (a past one shows its conversation for review, from the advice request on: showReview below)
+  const pastMessages = past ? (episode.messages || []).slice(transcriptFrom(episode.messages || [], episode)) : [];
   card.classList.add("has-queue");
   card.innerHTML = `<h2>${Questions.escape(episode.site)} · ${Questions.escape(when)}${episode.title ? ` · “${Questions.escape(episode.title)}”` : ""}</h2>
     <div class="queue-box"><span class="queue-count" data-site="${Questions.escape(episode.site)}" data-source="${Questions.escape(episode.source || "web")}">${Questions.escape(queueLine(episode))}</span>
@@ -230,20 +230,12 @@ function itemCard(episode, settings, now) {
     ${answered ? `<p class="meta">Your earlier answers are filled in; please update any that are different now. ${Questions.escape(Questions.UPDATE_NOTE)}</p>` : ""}
     <div class="form" ${confirmed ? "" : "hidden"}>
       ${Questions.render(questions)}
-      ${review ? `<div class="item"><span class="q">Your conversation, as it will be sent with your answers</span>
-        <p class="meta">Names, e-mail addresses, phone numbers and similar details are removed automatically. Each becomes a
-          numbered label, and the same name gets the same label wherever it comes up ([NAME1], [NAME2], ...).</p>
-        <pre class="transcript-view"></pre></div>` : ""}
+      ${pastMessages.length ? REVIEW_BOX : ""}
       <p class="meta">${Questions.escape(Questions.CONVERSATION_NOTES[episode.text] || Questions.CONVERSATION_NOTES.with_answers)}</p>
       <button type="button" class="submit">Submit</button> ${past ? '<button type="button" class="secondary skip">Skip this one</button>' : ""}</div>`;
   Questions.fill(card, questions, episode.answers);
   Questions.wire(card, questions);         // (a past one asks the check-in's questions: "too early to tell" clears the outcome)
-  if (review) {
-    redacted(review).then((result) => {
-      const view = card.querySelector(".transcript-view");        // (gone once the card was answered)
-      if (view) view.textContent = result.text;
-    });
-  }
+  const review = pastMessages.length ? showReview(card, pastMessages) : null;
   // the page counts as asked once it is on the screen (the update rule looks at that)
   chrome.runtime.sendMessage({ type: "rating_shown", id: episode.id, start: episode.start, end: episode.end });
   const done = (text) => { card.innerHTML = `<p class="done">${text}</p>`; };
@@ -276,9 +268,10 @@ function itemCard(episode, settings, now) {
     const { answers, missing } = Questions.read(card, questions);
     if (missing.length) { alert("Please answer all the questions marked *."); return; }
     if (past) {
+      if (review && review.shown === null) return;       // (its conversation is not on the page yet: a moment later)
       answeredHere.add(episode.id);
       const reply = await chrome.runtime.sendMessage({ type: "past_submitted", id: episode.id, answers: { ...answers, answeredAt: Date.now() },
-                                                       timing: Questions.timing(card) });
+                                                       timing: Questions.timing(card), ...(review ? reviewed(card, review) : {}) });
       // (not taken: it went meanwhile, annotated already here or on another computer, or the limit of 30 was reached)
       done(reply?.taken === false ? "This past conversation is no longer open: it was annotated already, or the limit of past conversations was reached. Your answers were not sent."
                                   : "Thank you. Your answers and this conversation were sent.");
@@ -305,10 +298,47 @@ function redacted(messages) {
   return chrome.runtime.sendMessage({ type: "redact_transcript", messages });
 }
 
-// the record's messages hold its turns start..end; the transcript starts at the opening
-function transcriptFrom(episode) {
+// `messages` hold the episode's turns start..end; the conversation that goes starts at the opening (the first
+// message that asked for advice): the index of that message
+function transcriptFrom(messages, episode) {
   let turn = 0;
-  return Math.max(0, (episode.messages || []).findIndex((message) => message.role === "user" && ++turn === episode.opening - episode.start + 1));
+  return Math.max(0, messages.findIndex((message) => message.role === "user" && ++turn === episode.opening - episode.start + 1));
+}
+
+// ---- the conversation for review (0.6.16) ----
+// As the consent form says (step 4): "The Outcomes page also shows you the conversation (your messages and the
+// AI's replies) with names, email addresses, phone numbers and similar details already removed. You can delete
+// anything else you do not want us to keep. The conversation is then stored on our study server with your
+// answers." So the outcome questions of a conversation, and the questions about a past one, come with the
+// conversation in a box the participant can edit. What the box holds at Submit goes to the background with the
+// answers, with whether it was changed and how long the text was as shown, so the study can tell how much
+// participants edit (background.js reviewedTranscript).
+const REVIEW_BOX = `<div class="item review"><span class="q">Your conversation, as we will store it</span>
+  <p class="meta">This is the conversation (your messages and the AI's replies) with names, e-mail addresses, phone numbers and
+    similar details already removed (<span class="removed">…</span>). Each became a numbered label, and the same name gets the
+    same label wherever it comes up ([NAME1], [NAME2], ...). <b>You can delete anything else you do not want us to keep</b>: edit
+    the text in the box. The conversation is then stored on our study server with your answers.</p>
+  <textarea class="transcript"></textarea></div>`;
+
+// Fills the review box of `card` with `messages` as the background redacts them. Returns the review's state:
+// `shown` is the text the box was filled with (null until the background has answered).
+function showReview(card, messages) {
+  const review = { shown: null };
+  redacted(messages).then((result) => {
+    const box = card.querySelector(".transcript");               // (gone once the card was answered)
+    if (!box) return;
+    review.shown = result.text;
+    box.value = result.text;
+    // (how many of each kind: "5 × name, 1 × phone")
+    card.querySelector(".removed").textContent = Object.entries(result.counts).map(([kind, count]) => `${count} × ${kind}`).join(", ") || "nothing found";
+  });
+  return review;
+}
+
+// what the review box of `card` holds now, for the message that submits the card's answers
+function reviewed(card, review) {
+  const transcript = card.querySelector(".transcript").value;
+  return { transcript, edited: transcript !== review.shown, shownChars: review.shown.length };
 }
 
 // What the participant asked about: their own one-sentence description of the decision, if they gave one;
@@ -416,9 +446,10 @@ function checkinCard(episode, episodes, settings, stored) {
   const days = Math.round((Date.now() - episode.openedAt) / 86400000);
   // (a tester's short follow-up time brings the check-in on the same day)
   const ago = days < 1 ? "Earlier today" : days === 1 ? "Yesterday" : `About ${days} days ago`;
-  // an episode from 0.4: its conversation, redacted as it will be sent, for review
-  const messages = episode.text === "at_checkin" ? reviewMessages(episode, stored) : [];
-  let review = null;         // ... as the background redacted it ({text, counts}), once it has answered (below)
+  // its conversation for review (0.6.16): from the advice request on, as it went with the quick answers. None
+  // when the text stays on this computer (an excluded site), or when the record does not hold it.
+  const turns = episode.text === "stays" ? [] : reviewMessages(episode, stored);
+  const messages = turns.slice(transcriptFrom(turns, episode));
   card.innerHTML = `<h2>${Questions.escape(episode.site)} · ${new Date(episode.openedAt).toLocaleDateString()}</h2>
     <p>${ago} you asked an AI assistant for advice. What happened since?</p>${recall(episode)}
     ${later ? `<p class="meta">Since then you had ${later} more conversation(s) that looked related to this one.</p>` : ""}
@@ -427,21 +458,10 @@ function checkinCard(episode, episodes, settings, stored) {
     ${canDefer ? `<p class="meta">Is it too early to tell how things turned out?
       <button type="button" class="secondary early">Too early to tell: ask me again in ${Modes.ASK_AGAIN_DAYS} days</button></p>` : ""}
     ${Questions.render(questions)}
-    ${messages.length ? `<div class="item"><span class="q">Your conversation, as we will store it</span>
-      <p class="meta">Names, e-mail addresses, phone numbers and similar details were removed automatically
-        (<span class="removed">…</span>). Delete anything else you do not want us to keep, then submit.</p>
-      <textarea class="transcript"></textarea></div>` : ""}
+    ${messages.length ? REVIEW_BOX : ""}
     <button type="button" class="submit">Submit check-in</button>`;
   Questions.wire(card, questions);
-  if (messages.length) {
-    redacted(messages).then((result) => {
-      const box = card.querySelector(".transcript");               // (gone once the card was answered)
-      if (!box) return;
-      review = result;
-      box.value = result.text;
-      card.querySelector(".removed").textContent = Object.entries(result.counts).map(([kind, count]) => `${count} ${kind}`).join(", ") || "nothing found";
-    });
-  }
+  const review = messages.length ? showReview(card, messages) : null;
   const early = card.querySelector(".early");
   if (early) {
     early.onclick = async () => {
@@ -453,14 +473,12 @@ function checkinCard(episode, episodes, settings, stored) {
   card.querySelector(".submit").onclick = async () => {
     const { answers, missing } = Questions.read(card, questions);
     if (missing.length) { alert("Please answer all the questions marked *."); return; }
-    if (messages.length && !review) return;       // (its conversation is not on the page yet: a moment later)
+    if (review && review.shown === null) return;  // (its conversation is not on the page yet: a moment later)
     card.dataset.settled = "answered";            // (the storage listener leaves this card alone)
-    const transcript = review ? card.querySelector(".transcript").value : null;
     // (too_early: empty when the form had no such box, so every check-in holds the same answers; timing: how
     // long the form took, lib/questions.js)
     await chrome.runtime.sendMessage({ type: "checkin_submitted", id: episode.id, answers: { too_early: [], ...answers, answeredAt: Date.now() },
-                                       timing: Questions.timing(card),
-                                       ...(review ? { transcript, edited: transcript !== review.text } : {}) });
+                                       timing: Questions.timing(card), ...(review ? reviewed(card, review) : {}) });
     card.innerHTML = '<p class="done">Thank you, that completes this conversation.</p>';
   };
   return card;

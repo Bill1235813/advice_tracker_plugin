@@ -27,6 +27,7 @@
 //   lastView        the conversation the participant looked at last (moves: switching, combined)
 //   episode:<id>    an episode from its first advice turn on: its mode, the answers given so far,
 //                   and its text from its end until the outcome questions of its follow-up are answered
+//                   (the outcomes page shows it for review with those questions: reviewedTranscript)
 //   queue, stats    uploads waiting for the network; counts for the heartbeat
 //   held            uploads that "Hold my answers on this computer" (before 0.5) held back: sent or
 //                   deleted only when the participant chooses so on the settings page
@@ -138,9 +139,10 @@ function updateEpisode(id, change) {
 }
 
 // The conversation text a record holds: the episode's messages, from its end until its check-in
-// (answers given after the episode ended are uploaded with them).
+// (answers given after the episode ended are uploaded with them), and for a past one the text as
+// the participant left it in its review box (`review`, until its annotation is queued).
 function withoutText(record) {
-  const { messages, ...rest } = record;
+  const { messages, review, ...rest } = record;
   return rest;
 }
 // a finished episode keeps its answers and counts, no text
@@ -1174,9 +1176,9 @@ async function onCheckinSubmitted(message) {
   // tracking was off) sends it now, before the record lets go of the text; while tracking is still
   // off, the record keeps the text until it is on again (sendWaitingTranscripts)
   await sendTranscript(record.id);
-  // an episode from 0.4: the conversation as the participant reviewed it on the check-in page (as
-  // 0.4 promised), redacted once more; `transcript_edited` says whether they deleted anything
-  const reviewed = Questions.conversationGoes(record, excluded(settings, record.url)) === "at_checkin" &&
+  // the conversation as the participant left it in the review box of the outcome questions (0.6.16; before,
+  // only an episode from 0.4 had the box): never for one whose text stays on this computer
+  const reviewed = Questions.conversationGoes(record, excluded(settings, record.url)) !== "stays" &&
                    (record.messages || record.status === "open") && typeof message.transcript === "string";
   await updateEpisode(record.id, (current) => {
     const owed = current.answers && current.messages && !current.transcriptSent && !textStays(current, settings);
@@ -1191,10 +1193,26 @@ async function onCheckinSubmitted(message) {
                             answers: await redactAnswers(message.answers, settings.redactNames), timing: message.timing ?? null, related_later: later,
                             followup: { ask_from: checkin.askFrom ?? null, due_at: checkin.dueAt ?? null, shown: checkin.shown ?? 0,
                                         final_call: Modes.finalCall(checkin, Date.now(), await studyEnd()), ...(checkin.decision || {}) },
-                            ...(reviewed ? { transcript: (await withNumbers((numbers) => Redact.redact(message.transcript, settings.redactNames, numbers))).text,
-                                             transcript_edited: Boolean(message.edited) } : {}) }, settings);
+                            ...(reviewed ? await reviewedTranscript(message, settings) : {}) }, settings);
   await count("checked_in");
   await updateBadge();
+}
+
+// The conversation as the participant left it in a review box of the outcomes page (0.6.16, ui/checkin.js
+// showReview), for the upload of the answers it was submitted with. `review`: {transcript: the box's text at
+// Submit, edited: whether it differs from the text shown, shownChars: how long the text shown was}.
+// NOTE: [thought process] the consent form says of the Outcomes page: "You can delete anything else you do not
+// want us to keep. The conversation is then stored on our study server with your answers." The study also wants
+// to know how much participants edit, so the upload says whether the text was changed and how long it was before
+// and after. For a study conversation the unedited text is on the server as well (it went with the quick answers
+// and when the conversation ended: episode_rating, episode_transcript), so there the two can be compared word by
+// word; a past conversation's unedited text goes only if the participant changed nothing (finishPastAnnotation).
+// NOTE: [edge case callout] the box is free text, so the participant can also type into it: it is redacted once
+// more here. Labels already in it ([NAME1], ...) stay as they are (lib/redact.js KEPT).
+async function reviewedTranscript(review, settings) {
+  const redacted = await withNumbers((numbers) => Redact.redact(review.transcript, settings.redactNames, numbers));
+  return { transcript: redacted.text, transcript_edited: Boolean(review.edited),
+           transcript_chars: { shown: review.shownChars ?? null, kept: review.transcript.length } };
 }
 
 // ---------------- the follow-up (0.6.9): did they decide, did they act, how did it turn out ----------------
@@ -2521,8 +2539,11 @@ async function onPastSubmitted(message) {
   await updateEpisode(message.id, (current) => {
     if (current.source !== "past" || current.answers || current.status !== "pending") return current;
     // (answerTiming: how long the form took, lib/questions.js timing; it goes with the annotation)
+    // (review, 0.6.16: the conversation as the participant left it in the card's review box, kept with the
+    // answers until the annotation is queued, so a browser that quits in between does not lose it)
     answered = { ...current, answers: message.answers, answerTiming: message.timing ?? null, versions: 1, answeredEnd: current.end,
-                 confirmedAt: current.confirmedAt ?? Date.now() };
+                 confirmedAt: current.confirmedAt ?? Date.now(),
+                 ...(typeof message.transcript === "string" ? { review: { transcript: message.transcript, edited: message.edited, shownChars: message.shownChars } } : {}) };
     return answered;
   });
   if (!answered) return false;
@@ -2541,13 +2562,21 @@ async function finishPastAnnotation(id) {
   const record = await load(`episode:${id}`);
   if (!record || record.source !== "past" || !record.answers || record.status !== "pending") return;
   const conversation = await transcript(record, record.end, settings);
+  // (0.6.16) the conversation as the participant left it in the card's review box. One they changed goes as they
+  // left it, as a text (`transcript_reviewed`), and the automatic one (`transcript`, the list of messages) does
+  // not go: for a past conversation nothing was sent before, so what they deleted never leaves the computer.
+  // One they left as it was goes as before. (None where the conversation does not go at all: an excluded site.)
+  const review = conversation && record.review ? await reviewedTranscript(record.review, settings) : null;
   const event = { type: "past_annotation", participant_id: settings.participantId, sent_at: Date.now(), payload: {
     episode: record.id, fingerprint: fingerprint(record), site: record.site, source: "past", opened_at: record.openedAt,
     conversation_created_at: record.conversationCreatedAt ?? null, detected_at: record.detectedAt,
     days_since: Math.round((Date.now() - record.openedAt) / DAY_MS), turns: record.end - record.start + 1,
     opening_turn: record.opening - record.start + 1, answers: await redactAnswers(record.answers, settings.redactNames),
     timing: record.answerTiming ?? null,
-    related_earlier: record.related.length, transcript: conversation?.messages ?? null, redacted: conversation?.counts ?? null,
+    related_earlier: record.related.length, transcript: review?.transcript_edited ? null : conversation?.messages ?? null,
+    redacted: conversation?.counts ?? null,
+    ...(review ? { transcript_edited: review.transcript_edited, transcript_chars: review.transcript_chars,
+                   ...(review.transcript_edited ? { transcript_reviewed: review.transcript } : {}) } : {}),
     ...(await studyClock()),
   } };
   const started = generation;
@@ -2646,8 +2675,9 @@ async function queuedEvent(event) {
   // answers go, without the conversation once the participant excluded its site (a conversation
   // already on its way otherwise goes as it was sent: with answers, or reviewed at a 0.4 check-in,
   // or chosen to be shared in 0.3)
-  if (event.payload.transcript && excluded(settings, record.url)) {
-    const { transcript_edited, ...payload } = event.payload;
+  // (also the conversation as reviewed on the outcomes page, 0.6.16: a check-in's `transcript`, a past one's `transcript_reviewed`)
+  if ((event.payload.transcript || event.payload.transcript_reviewed) && excluded(settings, record.url)) {
+    const { transcript_edited, transcript_reviewed, transcript_chars, ...payload } = event.payload;
     return { ...event, payload: { ...payload, transcript: null, redacted: null } };
   }
   return event;

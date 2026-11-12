@@ -80,7 +80,9 @@ so, and it asks again two days later. Everything you have not answered yet, and 
 conversations, are on the **Outcomes** page (extension icon → Outcomes); a Chrome notification
 reminds you of it every two days while anything there is unanswered. In week 5 of your study the
 outcome questions of every advice conversation are due, even if you have not acted yet or it is too
-early to tell.
+early to tell. With the outcome questions, the Outcomes page shows you the conversation with names,
+e-mail addresses, phone numbers and similar details already removed, in a box you can edit: delete
+anything else you do not want us to keep before you submit.
 
 ## The study's weeks and rules
 
@@ -151,6 +153,11 @@ when, and the rules (they are the consent form's). In short:
   about (your messages and the AI's replies, from your message that asked for advice on; earlier
   messages of the chat are not sent); the complete conversation is sent once more when it ends (if
   tracking is paused then, once it is on again; never if you exclude the site).
+- With the outcome questions of an advice conversation, the **Outcomes** page shows you that
+  conversation (your messages and the AI's replies) with personal details already removed, in a box
+  you can edit. You can delete anything else you do not want us to keep; the conversation is then
+  stored on our study server with your answers. The questions about a past conversation show its
+  conversation in the same way, and a past conversation you edited is sent only as you left it.
 - When you answer **No** (not advice), that part of the conversation is sent with your No in the
   same way (from the message the model took for an advice request on, with personal details
   removed), so the study team can see what the model got wrong; the conversation is then deleted
@@ -228,5 +235,4 @@ Full privacy policy: the link in the study e-mail.
   `chrome://extensions` click the circular reload arrow on the Advice Tracker card and reload
   your chat tabs. (The Web Store version will update itself.)
 - **Uninstall / withdraw**: `chrome://extensions` → **Remove** on the card. To also wipe the local
-  data first: Options → *Delete all data on this computer*. Tell the study team if you want your
-  submitted data deleted as well.
+  data first: Options → *Delete all data on this computer*.
