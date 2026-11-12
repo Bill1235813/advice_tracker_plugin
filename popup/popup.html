@@ -10,9 +10,13 @@
   pre { max-height: 160px; overflow: auto; background: #f3f4fb; padding: 6px; font-size: 11px; white-space: pre-wrap; }
   textarea { width: 100%; box-sizing: border-box; margin-top: 6px; padding: 6px; border: 1px solid #d9d9d3; border-radius: 6px; font: inherit; resize: vertical; }
   .note { color: #647084; font-size: 12px; margin-top: 4px; } .note ul { margin: 4px 0 0; padding-left: 18px; }
+  .team { border: 1px solid #d9d9d3; border-left: 4px solid #4f5bd5; border-radius: 8px; padding: 8px 10px; margin: 8px 0; }
+  .team .text { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 150px; overflow: auto; margin-top: 2px; }
 </style>
 <h1>Advice Tracker</h1>
 <div id="status"></div>
+<!-- messages from the study team that are not read yet (0.6.15, popup.js) -->
+<div id="team-messages"></div>
 <!-- where the participant is in the study's five weeks (popup.js) -->
 <div class="note" id="study-week"></div>
 <div class="row"><span>Advice conversations found</span><b id="n-found">0</b></div>
@@ -47,6 +51,7 @@
   <div class="note" id="feedback-status"></div>
 </div>
 <button id="rules">Study rules: payments and participation</button>
+<button id="messages">Messages from the study team</button>
 <button id="options">Settings</button>
 <pre id="debug-out" hidden></pre>
 <script src="../config.js"></script>

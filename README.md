@@ -25,8 +25,10 @@ version (one-click install) is in preparation; until then, follow the steps belo
 1. **Get the code.** On this page click the green **Code** button → **Download ZIP**, then
    unzip it. You get a folder named `advice_tracker_plugin-main`
    containing `manifest.json`.
-   Keep this folder somewhere permanent (Documents, not Downloads): Chrome loads the
-   extension from it every time it starts.
+   Put this folder somewhere permanent (Documents, not Downloads) **before** you go on.
+   **Do not delete, move or rename this folder during the five weeks of the study**: Chrome runs
+   the extension from it every time it starts. Without the folder Chrome turns the extension off,
+   and the answers and conversations it keeps on your computer for the study are lost with it.
    *(Alternatively: `git clone https://github.com/Bill1235813/advice_tracker_plugin.git`.)*
 2. **Open the extensions page.** Paste `chrome://extensions` into the address bar and press
    Enter (or Menu ⋮ → Extensions → Manage Extensions).
@@ -36,7 +38,12 @@ version (one-click install) is in preparation; until then, follow the steps belo
 5. The **settings page opens by itself.** Type your Participant ID (your Prolific ID) and click
    **Save**.
    *(If the page did not open: click the puzzle-piece icon → Advice Tracker → ⋮ → Options.)*
-6. **Pin the icon**: puzzle-piece icon (top right of Chrome) → pin next to Advice Tracker.
+6. **Pin the icon**, so that it stays visible and shows how many questions are waiting:
+   click the **puzzle-piece icon** (Extensions) at the top right of Chrome, to the right of the
+   address bar; in the list that opens, click the **pin** next to *Advice Tracker (research
+   study)*. The Advice Tracker icon now stays next to the puzzle piece.
+
+   ![How to pin Advice Tracker: click the puzzle-piece icon, then the pin next to Advice Tracker; its icon then stays in the toolbar](docs/pin-advice-tracker.png)
 7. **Reload any chat tabs** that were already open (the extension only attaches to pages
    opened after it was installed).
 
@@ -93,6 +100,12 @@ when, and the rules (they are the consent form's). In short:
 - **Your answers are reviewed** by the study team. Updating them when a conversation goes on is
   encouraged, not required. If the extension asks about a conversation that was not advice, answer
   **No**; if it misses one, please use **Report an advice conversation we missed**.
+- **A reminder at the end of weeks 1, 2, 3 and 5**, if you were not active in that time or have due
+  tasks left (weeks 1 to 3: quick questions not answered; week 5: outcome questions not answered):
+  the extension sends it by itself, with the day by which to finish, three days later.
+- **Messages from the study team** (for example a request to update) and these reminders show as
+  a notification and on your AI chat pages, and stay under the extension icon → **Messages from
+  the study team**.
 
 ## What it collects, and your controls
 
@@ -143,14 +156,29 @@ when, and the rules (they are the consent form's). In short:
   removed), so the study team can see what the model got wrong; the conversation is then deleted
   from your computer. A past conversation you **Skip** is deleted and its text is not sent.
   Names, e-mail addresses, phone numbers, web and street addresses, long numbers and similar
-  details are replaced with placeholders such as `[NAME]` on your computer before anything is sent;
-  add the names that matter most to you in the settings.
+  details are replaced with labels on your computer before anything is sent; add the names that
+  matter most to you in the settings. In what the study stores (your answers, the conversations sent
+  with them, your feedback) the labels are numbered: the first name is `[NAME1]`, the next
+  `[NAME2]`, and the same name gets the same label again, in any of your conversations (capital
+  and small letters make no difference), so the study team can tell that two mentions are
+  the same person without knowing who it is. The numbers are your own: `[NAME1]` of two
+  participants are two people. To keep them the same, the extension keeps a table on your
+  computer, which never leaves it and holds a fingerprint of each detail, not the detail itself;
+  "Delete all data" empties it. (The messages checked by the study's AI model have labels without
+  numbers, as before.)
 - Twice a day the extension sends a heartbeat with counts (found / rated / not advice), whether
   tracking is on (paused or not, and on which of the five sites it can capture), and when you last
   sent a message to one of the five AI assistants (the time only, never the text). A change of what
   is tracked is reported when it happens, and removing the extension is reported too. The study team
-  uses this to know when the extension was tracking and in use (see *Study rules* for what a pause
-  means for payment).
+  uses this to know that the extension is still installed and when it was tracking (see *Study
+  rules* for what a pause means for payment).
+- After each heartbeat the extension asks the study server whether the study team has a **message**
+  for your participant ID, and tells the server when a message arrived and when you clicked OK on
+  it. A message is shown as plain text.
+- At the end of each of weeks 1 to 3 and of week 5, and three days later, the extension tells the
+  study server what it found: whether you were active (an advice conversation, answers, feedback:
+  yes or no for each), how many advice conversations still have due questions, and whether it
+  reminded you. Counts and times only, nothing of a conversation.
 - With each set of answers the extension sends how long the questions took you (when they appeared,
   when you finished the first and the last answer, when you pressed Submit). The study team uses it
   when it reviews the quality of the answers.
@@ -195,7 +223,8 @@ Full privacy policy: the link in the study e-mail.
 
 ## Updating and uninstalling
 
-- **Update**: download the ZIP again, replace the contents of your folder, then on
+- **Update**: download the ZIP again, replace the contents of your folder (the same folder, in
+  the same place and with the same name: do not delete it first), then on
   `chrome://extensions` click the circular reload arrow on the Advice Tracker card and reload
   your chat tabs. (The Web Store version will update itself.)
 - **Uninstall / withdraw**: `chrome://extensions` → **Remove** on the card. To also wipe the local

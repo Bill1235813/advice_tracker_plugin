@@ -8,13 +8,15 @@
   th, td { text-align: left; vertical-align: top; padding: 6px 8px; border-bottom: 1px solid #e4e4de; }
   th { color: #647084; font-weight: 600; } tr.now td { background: #eeeffb; } td.when { white-space: nowrap; }
 </style>
-<!-- The study's rules for payments and participation (0.6.14), as in the consent form: the popup, the settings
-     page and the two pages of questions link here. rules.js adds the participant's own calendar. -->
+<!-- The study's rules for payments and participation (0.6.14), as in the consent form (0.6.15: as it reads
+     since November 11): the popup, the settings page and the pages of questions link here. rules.js adds the
+     participant's own calendar. -->
 <div class="wrap">
   <h1>Advice Tracker study rules</h1>
   <p class="sub">Payments and participation, as in the consent form. Questions? Click the Advice Tracker icon, then
     <b>Send feedback on the study</b>, or send us a message on Prolific.</p>
-  <p class="pages">Your questions: <a href="checkin.html">quick check-ins</a> · <a href="outcomes.html">your Outcomes page</a></p>
+  <p class="pages">Your questions: <a href="checkin.html">quick check-ins</a> · <a href="outcomes.html">your Outcomes page</a> ·
+    <a href="messages.html">messages from the study team</a></p>
 
   <h2 class="section">Your study calendar</h2>
   <div class="card" id="calendar"><p class="empty">Your calendar appears here once you have saved your participant ID in the settings.</p></div>
@@ -28,7 +30,8 @@
       <li><b>$5</b> if you take part for all five weeks and complete the final questionnaire.</li>
       <li><b>$10 high-quality bonus</b> at the end of the study if your answers are of high quality. It does not depend on
         how many advice conversations you had.</li>
-      <li><b>$2 for each past conversation</b> you answer the questions about (optional, up to 30).</li>
+      <li><b>$2 for each past conversation</b> you answer the questions about on time, by the end of week 5 (optional,
+        up to 30). It is paid with the next payment after you answer.</li>
     </ul>
     <p>A payment is made when you were <b>active</b> during that time and completed all the <b>due tasks</b>. A week is each
       7 days after you installed the extension.</p>
@@ -37,27 +40,31 @@
         conversation, (2) answered quick questions or follow-up questions, or (3) sent concrete feedback through the
         extension, for example about an advice conversation it missed or a possible improvement.</li>
       <li><b>Due tasks</b>: the quick questions for every advice conversation that started in weeks 1 to 3 and, in week 5,
-        the outcome questions for all your advice conversations, including the past conversations that are waiting for
-        your answers. In week 5 the outcome questions must be answered even if you have not acted yet or it is too early
-        to tell.</li>
+        the outcome questions for all your advice conversations. In week 5 they must be answered even if you have not
+        acted yet or it is too early to tell the outcome. (Before week 5 the outcome questions are not due tasks: the
+        reminder of your Outcomes page every 2 days asks you to answer them as soon as you can.)</li>
     </ul>
   </div>
 
-  <h2 class="section">Reminder, quality review and late answers</h2>
+  <h2 class="section">Reminder, not active or late, and quality review</h2>
   <div class="card">
     <ul>
       <li><b>Reminder.</b> If at the end of a week you were not active or have due tasks left, we send you a reminder. You
         then have 3 days to (a) answer quick questions or follow-up questions that are waiting, if there are any, or send
-        feedback (an advice conversation started after the end of the week does not count), and (b) finish the due tasks.</li>
+        concrete feedback to stay active (an advice conversation started after the end of the week does not count), and
+        (b) finish the due tasks. The extension shows this reminder by itself at the end of weeks 1, 2, 3 and 5, with the
+        day by which to finish: as a notification, in a small window on your AI chat pages, and under the Advice Tracker
+        icon (<b>Messages from the study team</b>).</li>
+      <li><b>Not active or late.</b> If you are still not active at the end of the 3 days, you lose the payment for that
+        week ($10). If you still have late answers at the end of the 3 days: for a week of weeks 1 to 3, you are paid in
+        proportion to the advice conversations you answered on time (out of all your advice conversations of that week);
+        for week 5, you are paid in proportion to the outcome questions you answered on time (out of all conversations
+        after the start of the study). If you are not active or you have a late answer for any week, you do not receive
+        the high-quality bonus.</li>
       <li><b>Quality review.</b> In the 2 days after that, we review the quality of the answers. We flag conversations that
-        are clearly not advice but were answered as advice, answers that were filled in very fast (the extension records
-        how long each set of questions takes you), and other signs of low quality. Flagged conversations are removed. If
-        most of your answers in a week are removed, you lose the payment for that week ($10); a removed past conversation
-        loses its $2.</li>
-      <li><b>Late answers.</b> Answers still missing at the end of the 3 days are late. For a week of weeks 1 to 3 you are
-        then paid in proportion to the advice conversations you answered on time; for week 5, in proportion to the outcome
-        questions you answered on time (for conversations during the study and for past conversations). With late answers
-        you do not receive the high-quality bonus.</li>
+        are clearly not advice but were answered as advice, answers that were filled in very fast, and other signs of low
+        quality. We remove flagged conversations. If most of your answers in a week are removed, you lose the payment for
+        that week ($10); a removed past conversation loses its $2.</li>
     </ul>
   </div>
 
@@ -78,14 +85,12 @@
       <li>You pause the extension for more than 1 week.</li>
       <li>The extension detects very low use of the AI assistants, for example no use for a week. (It reports when you
         last sent a message to one of them: the time only, never the text.)</li>
-      <li>Nothing further is needed from you. If you had no advice conversations in weeks 1 to 3, there are no outcome
-        questions for you in weeks 4 and 5, so your participation ends at the end of week 3. If past conversations are
-        still waiting for your answers then, we send you a reminder, you have 3 days to answer them, and your
-        participation ends after that. You are then not paid for weeks 4 and 5 ($10), the final questionnaire ($5) or
-        the high-quality bonus ($10).</li>
+      <li>Nothing further is needed from you.</li>
     </ul>
-    <p>If you stop taking part or we end your participation, you keep the payments you have already earned, and you are
-      paid for the days of the current week.</p>
+    <p>If you stop taking part or we end your participation, you keep the weekly payments and past-conversation payments
+      you have already earned, and you are paid for the days of the current week ($1.43 per day in weeks 1 to 3, $0.71 per
+      day in weeks 4 and 5). Your weekly payments do not depend on how many advice conversations you have, as long as you
+      were active.</p>
   </div>
 
   <h2 class="section">Your answers</h2>
@@ -106,6 +111,9 @@
       <li><b>Past conversations</b> (optional). Their questions are due by the end of week 5. Please answer them early: the
         longer you wait, the more details you forget. A past conversation you do not want to annotate can be skipped
         (<b>Skip this one</b>): nothing is due for it then.</li>
+      <li><b>Messages from the study team.</b> We may also send you a message through the extension, for example a
+        request to update it. Like the reminder at the end of a week, it shows as a notification and in a small window
+        on your AI chat pages, and stays under the Advice Tracker icon (<b>Messages from the study team</b>).</li>
     </ul>
   </div>
 </div>

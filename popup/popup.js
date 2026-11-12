@@ -54,12 +54,29 @@ async function refresh() {
                                            "chrome://extensions → Advice Tracker → Details → Site access.</div>");
   }
   document.getElementById("pause").textContent = settings.paused ? "Resume tracking" : "Pause tracking";
+  // Messages from the study team (0.6.15, background.js): each one that is not read yet, with its OK; the
+  // messages page lists them all. The team's words are set as text, never as HTML.
+  const unread = (stored.teamMessages || []).filter((message) => !message.readAt);
+  document.getElementById("team-messages").replaceChildren(...unread.map((message) => {
+    const item = document.createElement("div");
+    item.className = "team";
+    item.innerHTML = '<b></b><div class="text"></div><button class="primary">OK, I have read it</button>';
+    item.querySelector("b").textContent = message.title || "A message from the study team";
+    item.querySelector(".text").textContent = message.text;
+    item.querySelector("button").onclick = async () => {
+      await chrome.runtime.sendMessage({ type: "message_read", id: message.id, where: "popup" });
+      refresh();
+    };
+    return item;
+  }));
+  document.getElementById("messages").textContent = `Messages from the study team${unread.length ? ` (${unread.length} new)` : ""}`;
 }
 
 document.getElementById("open-checkin").onclick = () => chrome.tabs.create({ url: chrome.runtime.getURL("ui/checkin.html") });
 document.getElementById("open-outcomes").onclick = () => chrome.tabs.create({ url: chrome.runtime.getURL("ui/outcomes.html") });
 document.getElementById("options").onclick = () => chrome.runtime.openOptionsPage();
 document.getElementById("rules").onclick = () => chrome.tabs.create({ url: chrome.runtime.getURL("ui/rules.html") });
+document.getElementById("messages").onclick = () => chrome.tabs.create({ url: chrome.runtime.getURL("ui/messages.html") });
 // NOTE: [design thought] a pause counts in the study's rules (ui/rules.html), so the popup shows them before it
 // pauses (0.6.14): "Pause tracking" opens the box, and only the box's own button pauses. Resuming needs no second click.
 const pauseBox = document.getElementById("pause-box");
