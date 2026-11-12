@@ -1,6 +1,7 @@
 async function refresh() {
   const stored = await chrome.storage.local.get(null);
-  const settings = stored.settings || {}, stats = stored.stats || {};
+  // (the test build: lib/test_timings.js, before anything counts the study's days)
+  const settings = TestTimings.apply(stored.settings || {}), stats = stored.stats || {};
   const episodes = Object.entries(stored).filter(([name]) => name.startsWith("episode:")).map(([, episode]) => episode);
   const now = Date.now();
   document.getElementById("n-found").textContent = stats.episodes || 0;
@@ -16,7 +17,7 @@ async function refresh() {
   document.getElementById("n-due").textContent = episodes.filter((e) => Modes.followupOpen(Modes.followupStage(e, now, end))).length;
   // where the participant is in the study: its weeks count from when they joined (lib/modes.js studyDay), new advice
   // conversations are collected in the first three, open ones followed in the fourth, everything is due in the fifth
-  const days = (now - Modes.studyDay(stored, 0)) / 86400000;
+  const days = (now - Modes.studyDay(stored, 0)) / Modes.DAY;
   const week = document.getElementById("study-week");
   if (!(days >= 0)) week.textContent = "";                // (no participant ID yet)
   else if (days >= STUDY_CONFIG.studyDays) week.textContent = "The study's five weeks are over. Thank you!";

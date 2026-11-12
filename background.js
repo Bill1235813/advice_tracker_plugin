@@ -46,7 +46,7 @@
 //   appsFrom        (an install updated to 0.6.11 that had not agreed to read other devices) the update: turns from
 //                   other devices before it are never read
 importScripts("config.js", "lib/sites.js", "lib/episodes.js", "lib/modes.js", "lib/redact.js", "lib/similarity.js", "lib/questions.js",
-              "lib/history.js");
+              "lib/history.js", "lib/test_timings.js");
 
 const DEFAULT_SETTINGS = {
   participantId: "", serverUrl: STUDY_CONFIG.serverUrl, studyKey: STUDY_CONFIG.studyKey, paused: false, pausedAt: null,
@@ -62,11 +62,11 @@ const DEFAULT_SETTINGS = {
 };
 const POLL_WAIT_S = 20;      // one long-poll for a label (Chrome stops a worker that waits > 30 s for a response)
 const RETRY_MINUTES = 2;     // after a failed judgment, or when the server cannot be reached
-const SNOOZE_MINUTES = 60;   // "later (1 h)"
+let SNOOZE_MINUTES = 60;     // "later (1 h)"
 const ASK_WAIT_MINUTES = 5;  // a question about a reply waits at most this long for the reply to be complete
-const HEARTBEAT_MINUTES = 12 * 60;
-const QUESTION_EXPIRE_DAYS = 14;     // a question about an episode never answered goes this long after its first request
-const FOLLOWUP_GAP_MS = 4 * 3600 * 1000;   // follow-up pop-ups about different conversations at most this often
+let HEARTBEAT_MINUTES = 12 * 60;
+let QUESTION_EXPIRE_DAYS = 14;       // a question about an episode never answered goes this long after its first request
+let FOLLOWUP_GAP_MS = 4 * 3600 * 1000;     // follow-up pop-ups about different conversations at most this often
 // The study's weeks, in days from when the participant joined (config.js; studyDay below)
 const NEW_ADVICE_DAYS = STUDY_CONFIG.newAdviceDays ?? 21;    // new advice conversations are looked for until the end of week 3 ...
 const CONTINUE_DAYS = STUDY_CONFIG.continueDays ?? 28;       // ... and open ones are followed until the end of week 4
@@ -79,9 +79,12 @@ async function save(name, value) { await chrome.storage.local.set({ [name]: valu
 async function remove(name) { await chrome.storage.local.remove(name); }
 // NOTE: [edge case callout] settings saved before 0.6.1 hold the follow-up time in days (followupDays);
 // Modes.followupSeconds converts it until the next install or update saves the settings in seconds
-async function getSettings() {
+// (the test build: once test times are typed on the settings page, they replace the five times the settings hold,
+// lib/test_timings.js overlay; not in settings that are written back, `forSaving`, which keep the stored ones)
+async function getSettings(forSaving = false) {
   const stored = (await load("settings")) || {};
-  return { ...DEFAULT_SETTINGS, followupSeconds: Modes.followupSeconds(stored), ...stored };
+  const settings = { ...DEFAULT_SETTINGS, followupSeconds: Modes.followupSeconds(stored), ...stored };
+  return forSaving ? settings : TestTimings.overlay(settings);
 }
 async function loadAll(prefix) {
   const everything = await chrome.storage.local.get(null);
@@ -1321,7 +1324,7 @@ async function onFollowupAnswer(message, reply) {
 // the last outcomesReminderDays; none once everything there is answered.
 // NOTE: [edge case callout] as the heartbeat's, the alarm is created only when missing and timed from the
 // last check: created again at every browser start, it would never come for someone who closes Chrome daily
-const OUTCOMES_REMINDER_DAYS = STUDY_CONFIG.outcomesReminderDays ?? 2;
+let OUTCOMES_REMINDER_DAYS = STUDY_CONFIG.outcomesReminderDays ?? 2;
 async function keepOutcomesAlarm() {
   if (await chrome.alarms.get("outcomesReminder")) return;
   const period = OUTCOMES_REMINDER_DAYS * DAY_MS;
@@ -1526,14 +1529,14 @@ async function expireWaiting() {
 //   qstate:<site>       the site's invitations: when the last one came, today's past ones, misses in a row
 //   historyEpoch        bumped when a switch changes and at "delete all data": answers to requests made
 //                       before are dropped
-const DAY_MS = 24 * 3600 * 1000;
+let DAY_MS = 24 * 3600 * 1000;          // a study day (the test build can make it shorter: applyTestTimings)
 const HISTORY_SITES = STUDY_CONFIG.historySites;
-const LIST_EVERY_MS = 20 * 60000;      // page 1 of a site's conversation list this often
+let LIST_EVERY_MS = 20 * 60000;        // page 1 of a site's conversation list this often
 const ANSWER_WAIT_MS = 20000;          // a tab that does not answer a request within this is passed over
 const PAST_TURNS_JUDGED = 10;          // a past conversation: the advice judge on its first 10 past turns at most ...
 const PAST_WINDOW_TURNS = 10;          // ... and a past episode is the request and the 9 turns after it, at most
 const PAST_SCAN_MAX = 150;             // past conversations looked at, at most
-const PAST_EXPIRE_DAYS = 42;           // a past episode never answered goes this long after it was found (after the study's end, when they are due)
+let PAST_EXPIRE_DAYS = 42;             // a past episode never answered goes this long after it was found (after the study's end, when they are due)
 const READ_TRIES_MAX = 5;              // a conversation that fails to read this often is left until it changes on the site
 const JUDGE_TRIES_MAX = 5;             // a turn the judge refuses (or fails on) this often counts as not judged by the walk
 const YOUNG_TURN_MS = 5 * 60000;       // a turn this young may still prove to be sent on the web (its snapshot is on its way)
@@ -1541,7 +1544,8 @@ const LIVE_WAIT_MS = 2 * 60000;        // a web turn after turns from elsewhere 
 const LIVE_WAIT_MAX_MS = 15 * 60000;   // ... this long at most
 const WEB_WAIT_MS = 5 * 60000;         // ... and the walk this long for the web page to take the episode over
 const HISTORY_SUBMIT_GAP_MS = 15000, HISTORY_DAILY_MAX = 200, JUDGE_QUEUE_BUSY = 2;
-const INVITE_GAP_MS = 4 * 3600 * 1000, PAST_INVITES_A_DAY = 2, PAST_MISSES_MAX = 3, BUSY_PAGE_MS = 5 * 60000;    // (a day: any 24 hours)
+let INVITE_GAP_MS = 4 * 3600 * 1000;
+const PAST_INVITES_A_DAY = 2, PAST_MISSES_MAX = 3, BUSY_PAGE_MS = 5 * 60000;    // (a day: any 24 hours)
 const PAST_ASK_RETRY_MINUTES = 10;     // GET /past not answered yet: asked again, and past turns wait, this long
 // Reading, judging and asking about conversations read from a site happen only while tracking is on
 // (participant ID set, not paused) and the site is not excluded.
@@ -2778,10 +2782,10 @@ function followupCounts(episodes, now, end) {
 // finds the heartbeat just sent.
 // NOTE: [design thought] an hour of slack: a missed alarm fires once when Chrome starts again and
 // then keeps its old grid, so the next one can come less than 12 hours after a heartbeat sent at
-// that start
+// that start (a twelfth of the time when that is less: a shorter test time, lib/test_timings.js)
 function heartbeatIfDue() {
   return serialized("heartbeat", async () => {
-    if (Date.now() < ((await load("heartbeatAt")) || 0) + (HEARTBEAT_MINUTES - 60) * 60000) return;
+    if (Date.now() < ((await load("heartbeatAt")) || 0) + (HEARTBEAT_MINUTES - Math.min(60, HEARTBEAT_MINUTES / 12)) * 60000) return;
     await expireWaiting();
     await heartbeat();
   });
@@ -2806,7 +2810,7 @@ async function keepHeartbeatAlarm() {
 // reminder (pausedRemindedAt): Chrome may drop alarms when it restarts, and a reminder that fell due while
 // Chrome was closed comes a minute after its start instead of being skipped. It is cleared whenever tracking
 // is not paused.
-const PAUSED_REMINDER_HOURS = STUDY_CONFIG.pausedReminderHours ?? 12;
+let PAUSED_REMINDER_HOURS = STUDY_CONFIG.pausedReminderHours ?? 12;
 async function keepPausedReminder() {
   const settings = await getSettings();
   if (!settings.paused || !settings.participantId) {
@@ -2824,7 +2828,7 @@ async function keepPausedReminder() {
 async function remindPaused() {
   const settings = await getSettings();
   if (!settings.paused) return keepPausedReminder();          // resumed meanwhile: the alarm goes
-  const now = Date.now(), hours = (now - (settings.pausedAt || now)) / 3600000;
+  const now = Date.now(), hours = (now - (settings.pausedAt || now)) / (DAY_MS / 24);
   const ago = hours < 48 ? `${Math.max(1, Math.round(hours))} hours` : `${Math.round(hours / 24)} days`;
   const rule = hours < 24 ? "Your payment is not affected yet: a pause of more than 24 hours reduces this week's payment."
     : hours < 7 * 24 ? "This week's payment is reduced for the time paused, and a pause of more than a week ends your participation in the study."
@@ -3015,7 +3019,7 @@ async function fetchStudyConfig(settings) {
 // NOTE: [design thought] a message is shown as text, never as HTML (the pages set textContent), and cut to a
 // length: the server is the study's own, but what it sends is not trusted with the extension's pages
 const TEAM_TITLE_CHARS = 120, TEAM_TEXT_CHARS = 2000, TEAM_MESSAGES_KEPT = 30;
-const TEAM_MESSAGE_GAP_MS = 4 * 3600 * 1000;      // a message closed without OK comes back on a chat page this much later
+let TEAM_MESSAGE_GAP_MS = 4 * 3600 * 1000;        // a message closed without OK comes back on a chat page this much later
 const TEAM_CHECK_GAP_MS = 60 * 1000;              // the messages page asks the server at most this often
 let teamCheckedAt = 0;
 
@@ -3132,7 +3136,7 @@ async function onTeamMessageRead(message) {
 // (the alarm is set again whenever the worker starts, and every heartbeat checks too). A part whose three days
 // were over before this version was installed is left alone; one whose three days are over when its end is
 // first looked at is reported without a reminder (the day it would name has passed).
-const WEEK_REMINDER_DAYS = STUDY_CONFIG.weekReminderDays ?? 3;
+let WEEK_REMINDER_DAYS = STUDY_CONFIG.weekReminderDays ?? 3;
 
 function weekCheck() {
   return serialized("weekStatus", async () => {
@@ -3333,8 +3337,50 @@ function openMessages() {
   chrome.tabs.create({ url: chrome.runtime.getURL("ui/messages.html") });
 }
 
+// ---------------- the test build's timings (the branch "test" only) ----------------
+// NOTE: [design thought] the times above are the study's. The settings page's "Test timings" can change them for a
+// test (lib/test_timings.js): the worker reads them before it handles any event (each listener below waits for
+// `timingsApplied`), and again when they change; then it sets every timer again with the new times, as a start of
+// the worker does. With no test time typed, every value is the study's: the defaults of lib/test_timings.js are
+// the values above (tests/node/test_test_timings.js checks that).
+// NOTE: [pedagogical] the times counted in days stay in days, and a day lasts DAY_MS: a time typed in its own
+// field (real time) is turned into that many study days
+async function applyTestTimings() {
+  const times = TestTimings.effective(((await load("settings")) || {}).testTimings);
+  Modes.setTimings({ day: times.day });
+  DAY_MS = times.day;
+  SNOOZE_MINUTES = times.snooze / 60000;
+  HEARTBEAT_MINUTES = times.heartbeat / 60000;
+  QUESTION_EXPIRE_DAYS = times.questionExpire / times.day;
+  FOLLOWUP_GAP_MS = times.followupGap;
+  OUTCOMES_REMINDER_DAYS = times.outcomesReminder / times.day;
+  LIST_EVERY_MS = times.listEvery;
+  PAST_EXPIRE_DAYS = times.pastExpire / times.day;
+  INVITE_GAP_MS = times.inviteGap;
+  PAUSED_REMINDER_HOURS = times.pausedReminder / 3600000;
+  TEAM_MESSAGE_GAP_MS = times.messageAgain;
+  WEEK_REMINDER_DAYS = times.weekReminder / times.day;
+}
+let timingsApplied = applyTestTimings();
+
+// Every timer set again, with times that just changed: what a start of the worker does (resumeAll, and the calls
+// at the end of this file)
+async function restartTimers() {
+  await chrome.alarms.clearAll();
+  await resumeAll();
+  await heartbeatIfDue();
+  await keepHeartbeatAlarm();
+  await keepPausedReminder();
+  await weekCheck();
+}
+
 // ---------------- event wiring ----------------
+// (the test build: a message waits for the test times, so each caller gets its answer a moment later)
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  timingsApplied.then(() => handleMessage(message, sender, sendResponse));
+  return true;
+});
+function handleMessage(message, sender, sendResponse) {
   // the two messages whose callers wait for an answer
   if (message.type === "panel_episode") {
     // NOTE: [design thought] a page that waited behind another one (`waited`), and the update pop-up's
@@ -3410,9 +3456,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     case "open_help": openCheckin("#advice"); break;            // "what counts as advice?" on a chat page
     case "check_messages": checkTeamMessages(); break;          // the messages page was opened
   }
-});
+}
 
 chrome.alarms.onAlarm.addListener(async (alarm) => {
+  await timingsApplied;
   const [kind, name] = alarm.name.split("|");      // e.g. "quiet|chatgpt.com/<id>", "pause|<episode>", "flush"
   if (kind === "judge" || kind === "quiet") advance(name);
   else if (kind === "hjudge") kickHistory(name || null);
@@ -3434,6 +3481,7 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
 });
 
 chrome.notifications.onClicked.addListener(async (id) => {
+  await timingsApplied;
   const [kind, episode] = id.split("|");
   chrome.notifications.clear(id);
   if (kind === "paused") return chrome.runtime.openOptionsPage();
@@ -3448,6 +3496,7 @@ chrome.notifications.onClicked.addListener(async (id) => {
 });
 
 chrome.notifications.onButtonClicked.addListener(async (id, button) => {
+  await timingsApplied;
   if (id !== "paused") return;
   chrome.notifications.clear(id);
   await count(button === 0 ? "paused_reminder_resume" : "paused_reminder_stay");
@@ -3486,7 +3535,8 @@ async function keepHistoryAlarm() {
 }
 
 chrome.runtime.onInstalled.addListener(async (details) => {
-  const settings = await getSettings();
+  await timingsApplied;
+  const settings = await getSettings(true);
   // NOTE: [edge case callout] before 0.4 an episode ended after 10 quiet minutes, and before 0.6.12 after a quiet
   // day; it now lasts until the topic changes or a week goes by. An install updated from an earlier version that
   // still has an old default saved (every Save on the settings page writes it) moves to the new one, while a time
@@ -3563,6 +3613,7 @@ chrome.runtime.onInstalled.addListener(async (details) => {
 });
 // a browser start: sites that refused the reading (HTTP 403) are tried again
 chrome.runtime.onStartup.addListener(async () => {
+  await timingsApplied;
   for (const [name, state] of await loadAll("hstate:")) if (state.blocked) await save(name, { ...state, blocked: false });
   await noteAlive();
   await resumeAll();
@@ -3579,6 +3630,11 @@ chrome.storage.onChanged.addListener((changes, area) => {
     (after.participantId ? noteJoined() : Promise.resolve()).then(statusChanged).then(keepPausedReminder);
   }
   if (differs("excludedHosts")) forgetExcluded();
+  // (the test build: new test times are read, and every timer is set again with them)
+  if (differs("testTimings")) {
+    timingsApplied = applyTestTimings();
+    timingsApplied.then(restartTimers);
+  }
   // NOTE: [edge case callout] what the study server said about the earlier participant ID (the past conversations
   // it annotated; when it first reported, which ends the past) does not hold for a new one (a typo corrected):
   // asked again, and past turns wait meanwhile. (Not at the first setup: nothing was asked without an ID.)
@@ -3603,8 +3659,11 @@ chrome.permissions.onRemoved.addListener(statusChanged);
 
 // whenever the worker starts: a heartbeat if one is due, its alarm is there, and the uninstall
 // address is current
-heartbeatIfDue().then(keepHeartbeatAlarm);
-keepPausedReminder();
-weekCheck();
-noteAlive();
-getSettings().then(setUninstallUrl);
+// (the test build: with the test times)
+timingsApplied.then(() => {
+  heartbeatIfDue().then(keepHeartbeatAlarm);
+  keepPausedReminder();
+  weekCheck();
+  noteAlive();
+  getSettings().then(setUninstallUrl);
+});

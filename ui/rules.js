@@ -1,13 +1,16 @@
 // The study rules page (0.6.14). The rules themselves are in ui/rules.html, as in the consent form. This script
 // adds the participant's own calendar: the study's weeks count from when they joined (lib/modes.js studyDay), so
 // the end of each week, its payment day and the days the extension stops collecting are dates of their own.
-const DAY = 24 * 3600 * 1000;
+
 // a payment comes this many days after the end of its week: 3 days for the answers a reminder asks for, then 2
 // days for the study team's review of the answers
 const PAY_DAYS = 5;
 
 async function main() {
-  const stored = await chrome.storage.local.get(["pastBefore", "joinedAt"]);
+  const stored = await chrome.storage.local.get(["pastBefore", "joinedAt", "settings"]);
+  // (the test build: a study day as long as the settings page says, lib/test_timings.js)
+  TestTimings.apply(stored.settings);
+  const DAY = Modes.DAY;
   const start = Modes.studyDay(stored, 0);
   if (!Number.isFinite(start)) return;               // (no participant ID yet: the page says so)
   const date = (days) => new Date(start + days * DAY).toLocaleDateString(undefined, { weekday: "short", month: "long", day: "numeric" });

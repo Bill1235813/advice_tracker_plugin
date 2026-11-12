@@ -54,7 +54,8 @@ const QUEUE_SUB = "The next conversation will appear once you label this one.";
 async function main() {
   const params = new URLSearchParams(location.search);
   const stored = await chrome.storage.local.get(null);
-  const settings = stored.settings || {};
+  // (the test build: lib/test_timings.js, before anything counts the study's days)
+  const settings = TestTimings.apply(stored.settings || {});
   pageSettings = settings;
   const episodes = Object.entries(stored).filter(([name]) => name.startsWith("episode:")).map(([, episode]) => episode)
     .sort((a, b) => a.openedAt - b.openedAt);
@@ -67,7 +68,7 @@ async function main() {
   if (OUTCOMES && Number.isFinite(end)) {
     const day = (at) => new Date(at).toLocaleDateString(undefined, { month: "long", day: "numeric" });
     for (const span of document.querySelectorAll(".due-by")) span.textContent = ` (${day(end)})`;
-    for (const span of document.querySelectorAll(".final-from")) span.textContent = ` (from ${day(end - Modes.FINAL_DAYS * 86400000)})`;
+    for (const span of document.querySelectorAll(".final-from")) span.textContent = ` (from ${day(end - Modes.FINAL_DAYS * Modes.DAY)})`;
   }
   // one question per site from its queue: the one an invitation (or a notification) opened this tab
   // for, else the site's current one
@@ -427,7 +428,7 @@ async function rebuildFollowup(id, askWhen = false) {
   }
   const episodes = Object.entries(stored).filter(([name]) => name.startsWith("episode:")).map(([, record]) => record);
   episode.text = conversationGoes(episode, stored.settings || {});
-  card.replaceWith(followupCard(episode, episodes, stored.settings || {}, stored, false, askWhen));
+  card.replaceWith(followupCard(episode, episodes, TestTimings.apply(stored.settings || {}), stored, false, askWhen));
 }
 
 // The outcome questions of a conversation: the end of its follow-up.
@@ -443,7 +444,7 @@ function checkinCard(episode, episodes, settings, stored) {
   const canDefer = !final && Modes.followupStage(episode, now, end) === "outcome";
   const questions = canDefer ? Questions.CHECKIN.filter((item) => item.key !== "too_early") : Questions.CHECKIN;
   const later = episodes.filter((other) => (other.related || []).includes(episode.id)).length;
-  const days = Math.round((Date.now() - episode.openedAt) / 86400000);
+  const days = Math.round((Date.now() - episode.openedAt) / Modes.DAY);
   // (a tester's short follow-up time brings the check-in on the same day)
   const ago = days < 1 ? "Earlier today" : days === 1 ? "Yesterday" : `About ${days} days ago`;
   // its conversation for review (0.6.16): from the advice request on, as it went with the quick answers. None
@@ -548,7 +549,7 @@ async function readingStatus(stored) {
 async function renderReading() {
   const stored = await chrome.storage.local.get(null);
   const onScreen = new Set([...document.querySelectorAll(".card.has-queue")].filter((card) => !card.dataset.settled).map((card) => card.id.replace(/^card-item-/, "")));
-  queueCounts = countQueued(Object.entries(stored).filter(([name]) => name.startsWith("episode:")).map(([, episode]) => episode), stored.settings || {}, onScreen);
+  queueCounts = countQueued(Object.entries(stored).filter(([name]) => name.startsWith("episode:")).map(([, episode]) => episode), TestTimings.apply(stored.settings || {}), onScreen);
   for (const line of document.querySelectorAll(".queue-count")) line.textContent = queueLine({ site: line.dataset.site, source: line.dataset.source });
   const box = document.getElementById("reading");
   if (!box) return;
@@ -568,7 +569,7 @@ async function renderReading() {
 // no longer read) says it is no longer open. Answers given on this tab's own cards are in answeredHere.
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== "local") return;
-  if (changes.settings) pageSettings = changes.settings.newValue || {};
+  if (changes.settings) pageSettings = TestTimings.apply(changes.settings.newValue || {});
   if (Object.keys(changes).some((name) => /^(settings|hconfig|hstate:|hlist:|hist:|qstate:|episode:)/.test(name))) renderReading();
   for (const [name, change] of Object.entries(changes)) {
     if (!name.startsWith("episode:")) continue;

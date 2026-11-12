@@ -8,6 +8,22 @@ const forTeam = new URLSearchParams(location.search).has("advanced");
 document.getElementById("advanced").hidden = !forTeam;
 document.getElementById("advanced").open = forTeam;
 
+// ---- the test build only (the branch "test"): the study's times, shortened for a test (lib/test_timings.js) ----
+// One row per time: what the page calls it and a field for a time typed; an empty field shows, grey, the time it has
+// without one (the study's, which follows the study day typed in the first field when the study counts it in days
+// or hours). The labels are the extension's own texts, so they go in as HTML.
+const timingRows = document.getElementById("timings");
+for (const timing of TestTimings.TIMINGS) {
+  if (timing.group) timingRows.insertAdjacentHTML("beforeend", `<tr><th colspan="2">${timing.group}</th></tr>`);
+  timingRows.insertAdjacentHTML("beforeend", `<tr><td><label for="t-${timing.name}">${timing.label}</label>` +
+    `${timing.help ? `<span class="help">${timing.help}</span>` : ""}</td><td><input type="text" id="t-${timing.name}"></td></tr>`);
+}
+function showStudyTimes() {
+  const times = TestTimings.effective({ day: document.getElementById("t-day").value });
+  for (const timing of TestTimings.TIMINGS) document.getElementById(`t-${timing.name}`).placeholder = TestTimings.format(times[timing.name]);
+}
+document.getElementById("t-day").oninput = showStudyTimes;
+
 async function load() {
   const { settings = {} } = await chrome.storage.local.get("settings");
   for (const field of FIELDS) document.getElementById(field).value = settings[field] ?? DEFAULTS[field] ?? "";
@@ -22,6 +38,9 @@ async function load() {
   if (mode) mode.checked = true;
   // what "Hold my answers on this computer" (before 0.5) held back
   const { held = [] } = await chrome.storage.local.get("held");
+  // (the test build: the times typed under Test timings, as they were typed)
+  for (const timing of TestTimings.TIMINGS) document.getElementById(`t-${timing.name}`).value = settings.testTimings?.[timing.name] ?? "";
+  showStudyTimes();
   document.getElementById("held").hidden = !held.length;
   document.getElementById("held-count").textContent = `${held.length} upload(s)`;
 }
@@ -80,6 +99,17 @@ document.getElementById("save").onclick = async () => {
     alert("Please enter the minutes without activity as a whole number from 1 to 10080 (10080 = 7 days).");
     return;
   }
+  // (the test build: the times typed under Test timings, kept as typed; one that is not a time stops the Save)
+  const testTimings = {};
+  for (const timing of TestTimings.TIMINGS) {
+    const text = document.getElementById(`t-${timing.name}`).value.trim();
+    if (!text) continue;
+    if (TestTimings.parse(text) === null) {
+      alert(`Test timings: "${text}" is not a time. Please type a number and a unit, for example 30s, 5m, 2h or 7d.`);
+      return;
+    }
+    testTimings[timing.name] = text;
+  }
   // since when tracking is paused (the heartbeat reports it): kept while it stays paused
   const pausedAt = !paused ? null : (settings.paused && settings.pausedAt) || Date.now();
   const next = {
@@ -96,6 +126,8 @@ document.getElementById("save").onclick = async () => {
   };
   delete next.followupDays;          // (days, before 0.6.1: followupSeconds replaces it)
   delete next.readApps;              // (the switch for other devices, before 0.6.11: they are always read)
+  // (the test build: kept once a test time was typed, so that a Save without any changes nothing for the worker)
+  if (Object.keys(testTimings).length || settings.testTimings) next.testTimings = testTimings;
   await chrome.storage.local.set({ settings: next });
   document.getElementById("saved").textContent = "saved";
   load();                     // the sites as they were saved
