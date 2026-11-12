@@ -34,6 +34,12 @@
 //   joinedAt        when the participant ID was first set: turns before it are past, after it the study's
 //   lastMessageAt   when the participant last sent a message to one of the AI assistants (a time, no text)
 //   pausedRemindedAt  when the last reminder of a pause came
+//   redactNumbers   the numbers of the placeholders in what was uploaded ([NAME1], [NAME2], ...: lib/redact.js),
+//                   under fingerprints of the details, so the same detail gets the same number again
+//   teamMessages    the messages for this participant: [{id, title, text, sentAt, receivedAt, readAt}], sent by the
+//                   study team or made here (`automatic`: the reminder at the end of a study week)
+//   weekStatus      what was found at the end of each paid part of the study, and three days later (weekCheck)
+//   feedbackAt      when the participant sent feedback (times, no text): one of the ways to be active in a week
 //   trackingLog     [{at, on: [hosts]}]: from `at` on, tracking was on for these sites (none while paused)
 //   deletedAt       when "delete all data" last ran
 //   appsFrom        (an install updated to 0.6.11 that had not agreed to read other devices) the update: turns from
@@ -257,6 +263,9 @@ async function onSettled(key) {
 // is a move to another conversation.
 async function onView(message, sender) {
   const settings = await getSettings();
+  // a message from the study team has a small window of its own, apart from the questions (0.6.15): it comes
+  // also while tracking is paused
+  await offerTeamMessage(sender.tab.id, message.url, settings);
   if (notTracking(settings, message.url)) return;
   const view = { key: await chatKey(message), tabId: sender.tab.id, site: message.site, url: message.url, at: Date.now() };
   await save("lastView", view);
@@ -584,6 +593,23 @@ function redactJob(job, names) {
   return { ...job, previous: clean(job.previous), reply: clean(job.reply), current: clean(job.current) };
 }
 
+// Redaction of what the study stores (answers, conversations, feedback): the placeholders are numbered
+// (0.6.15, lib/redact.js: the same name is [NAME1] wherever it comes up again), from the table kept under
+// redactNumbers. `work(numbers)` redacts with that table (Redact.redact(text, names, numbers)), which may add
+// to it; returns what work returns.
+// NOTE: [edge case callout] one redaction at a time (the table's chain), and the table is saved before the
+// redacted text is handed back: two uploads at once never give one number to two details, and a number in a
+// text that left the computer is never given out again after the worker stops
+function withNumbers(work) {
+  return serialized("redactNumbers", async () => {
+    const numbers = (await load("redactNumbers")) || {};
+    const before = JSON.stringify(numbers);
+    const result = work(numbers);
+    if (JSON.stringify(numbers) !== before) await save("redactNumbers", numbers);
+    return result;
+  });
+}
+
 // {state: "waiting" | "done" | "failed"} from the server, or "unknown" / "unreachable"
 async function collect(id, settings) {
   try {
@@ -726,8 +752,8 @@ async function sendTranscript(id, messages = null) {
   });
   if (!claimed) return false;
   const { userTurns, replies } = Episodes.splitTurns(claimed.text);
-  const redacted = Redact.redactMessages(Episodes.episodeMessages(userTurns, replies, claimed.opening - claimed.start + 1,
-                                                                  claimed.end - claimed.start + 1), settings.redactNames);
+  const messagesOut = Episodes.episodeMessages(userTurns, replies, claimed.opening - claimed.start + 1, claimed.end - claimed.start + 1);
+  const redacted = await withNumbers((numbers) => Redact.redactMessages(messagesOut, settings.redactNames, numbers));
   // (answer_versions, final_due: when a change of topic or the cut asked no final answers, because
   // nothing was new since the answers, the last episode_rating stands as the final one)
   await upload("episode_transcript", { episode: claimed.id, site: claimed.site, source: claimed.source ?? "web", mode: claimed.mode, closed_by: claimed.closedBy,
@@ -840,7 +866,7 @@ async function transcript(record, end, settings) {
     const { userTurns, replies } = Episodes.splitTurns(record.messages);
     messages = Episodes.episodeMessages(userTurns, replies, record.opening - record.start + 1, end - record.start + 1);
   }
-  return messages && Redact.redactMessages(messages, settings.redactNames);
+  return messages && withNumbers((numbers) => Redact.redactMessages(messages, settings.redactNames, numbers));
 }
 
 // Ratings pages of the episode that are open (in any tab) take its newer state: more turns, the
@@ -1071,10 +1097,11 @@ async function offerAnswered(message) {
   await withdrawOffers(message.id, await coveredEnd(message));
 }
 
-// Free text leaves the computer only after redaction, like everything else.
+// Free text leaves the computer only after redaction, like everything else (a promise: the placeholders
+// are numbered, withNumbers).
 function redactAnswers(answers, names) {
-  return Object.fromEntries(Object.entries(answers).map(([key, value]) =>
-    [key, typeof value === "string" ? Redact.redact(value, names).text : value]));
+  return withNumbers((numbers) => Object.fromEntries(Object.entries(answers).map(([key, value]) =>
+    [key, typeof value === "string" ? Redact.redact(value, names, numbers).text : value])));
 }
 
 async function onRatingSubmitted(message) {
@@ -1121,7 +1148,7 @@ async function onRatingSubmitted(message) {
     episode: record.id, site: record.site, source: record.source ?? "web", mode: record.mode, stage, version: record.versions,
     turns: record.answeredEnd - record.start + 1, opening_turn: record.opening - record.start + 1, open: record.status === "open",
     closed_by: record.closedBy, opened_at: record.openedAt, closed_at: record.closedAt,
-    rating: redactAnswers(message.rating, settings.redactNames), timing: message.timing ?? null, related_earlier: record.related.length,
+    rating: await redactAnswers(message.rating, settings.redactNames), timing: message.timing ?? null, related_earlier: record.related.length,
     transcript: conversation?.messages ?? null, redacted: conversation?.counts ?? null,
   }, settings);
   await count(record.versions === 1 ? "rated" : "updated");
@@ -1161,10 +1188,10 @@ async function onCheckinSubmitted(message) {
   // week, when they are due whatever the answers were). Times and choices only; `timing` as with the ratings)
   const checkin = record.checkin;
   await upload("checkin", { episode: record.id, site: record.site, source: record.source ?? "web", mode: record.mode,
-                            answers: redactAnswers(message.answers, settings.redactNames), timing: message.timing ?? null, related_later: later,
+                            answers: await redactAnswers(message.answers, settings.redactNames), timing: message.timing ?? null, related_later: later,
                             followup: { ask_from: checkin.askFrom ?? null, due_at: checkin.dueAt ?? null, shown: checkin.shown ?? 0,
                                         final_call: Modes.finalCall(checkin, Date.now(), await studyEnd()), ...(checkin.decision || {}) },
-                            ...(reviewed ? { transcript: Redact.redact(message.transcript, settings.redactNames).text,
+                            ...(reviewed ? { transcript: (await withNumbers((numbers) => Redact.redact(message.transcript, settings.redactNames, numbers))).text,
                                              transcript_edited: Boolean(message.edited) } : {}) }, settings);
   await count("checked_in");
   await updateBadge();
@@ -1298,8 +1325,14 @@ async function remindOutcomes() {
   if (!(followups + past) || now < ((await load("outcomesSeenAt")) ?? -Infinity) + OUTCOMES_REMINDER_DAYS * DAY_MS) return;
   // NOTE: [design thought] notifications never show conversation text (IRB protocol): the same words for every
   // follow-up, whatever its stage, and a count of the past conversations with the day they are due (the study's end)
-  const asks = followups ? "Please check your Outcomes page for unanswered questions: Have you decided or acted? Did you get an outcome?" : "";
-  const due = Number.isFinite(end) ? ` (due by ${new Date(end).toLocaleDateString(undefined, { month: "long", day: "numeric" })})` : "";
+  // NOTE: [design thought] the reminder says "due" only of what is due (0.6.15): the outcome questions are a due
+  // task of the study's last week only (ui/rules.html), so before it the reminder asks without a deadline, and in
+  // that week (the final call of a follow-up) it names the day; past conversations are due by the same day
+  const day = Number.isFinite(end) ? new Date(end).toLocaleDateString(undefined, { month: "long", day: "numeric" }) : "";
+  const finalWeek = day && records.some((record) => Modes.followupOpen(Modes.followupStage(record, now, end)) && Modes.finalCall(record.checkin, now, end));
+  const asks = followups ? "Please check your Outcomes page for unanswered questions: Have you decided or acted? Did you get an outcome?" +
+                           (finalWeek ? ` The outcome questions are due by ${day}, the end of your study.` : "") : "";
+  const due = day ? ` (due by ${day})` : "";
   const pastAsks = past ? `${past === 1 ? "One past conversation waits" : `${past} past conversations wait`} for your answers ${followups ? "there too" : "on your Outcomes page"}${due}.` : "";
   chrome.notifications.create("outcomes", {
     type: "basic", iconUrl: "icons/icon128.png", title: "Advice Tracker: unanswered questions",
@@ -1412,8 +1445,10 @@ async function updateBadge() {
   const settings = await getSettings();
   // (a queued question whose kind is off, or whose site is excluded, cannot be asked: it does not count)
   const askable = (record) => !Modes.viaQueue(record) || (kindOn(settings, record) && !excluded(settings, record.url));
+  // (and the messages from the study team that are not read yet, 0.6.15)
   const waiting = (await loadAll("episode:")).filter(([, record]) => (Modes.waiting(record) && askable(record)) ||
-                                                                      Modes.followupAsks(Modes.followupStage(record, now, end))).length;
+                                                                      Modes.followupAsks(Modes.followupStage(record, now, end))).length +
+                  ((await load("teamMessages")) || []).filter((message) => !message.readAt).length;
   await chrome.action.setBadgeText({ text: waiting ? String(waiting) : "" });
   await chrome.action.setBadgeBackgroundColor({ color: "#4f5bd5" });
 }
@@ -2510,7 +2545,7 @@ async function finishPastAnnotation(id) {
     episode: record.id, fingerprint: fingerprint(record), site: record.site, source: "past", opened_at: record.openedAt,
     conversation_created_at: record.conversationCreatedAt ?? null, detected_at: record.detectedAt,
     days_since: Math.round((Date.now() - record.openedAt) / DAY_MS), turns: record.end - record.start + 1,
-    opening_turn: record.opening - record.start + 1, answers: redactAnswers(record.answers, settings.redactNames),
+    opening_turn: record.opening - record.start + 1, answers: await redactAnswers(record.answers, settings.redactNames),
     timing: record.answerTiming ?? null,
     related_earlier: record.related.length, transcript: conversation?.messages ?? null, redacted: conversation?.counts ?? null,
     ...(await studyClock()),
@@ -2686,6 +2721,8 @@ async function heartbeat() {
     // (0.6.14: when the participant last sent a message to an AI assistant, a time: the study's rules ask for
     // some use in every week, and from the end of week 3 on no message goes to the study server)
     last_message_at: (await load("lastMessageAt")) ?? null,
+    // (0.6.15: how many messages from the study team wait here for the participant's OK)
+    unread_messages: ((await load("teamMessages")) || []).filter((message) => !message.readAt).length,
     history: await historyStates(), ...(await studyClock()),
   }, settings);
   await save("heartbeatAt", Date.now());
@@ -2693,6 +2730,8 @@ async function heartbeat() {
   await fetchStudyConfig(settings);
   await checkJoined(settings);
   await checkPastAnnotated(settings);
+  await fetchTeamMessages(settings);
+  await weekCheck();
 }
 
 function followupCounts(episodes, now, end) {
@@ -2934,6 +2973,223 @@ async function fetchStudyConfig(settings) {
   } catch (error) { /* offline: the last one stands */ }
 }
 
+// ---------------- messages from the study team (0.6.15) ----------------
+// The study team can send a participant a message through the study server: to update the extension, about
+// something that is due, or that their participation has ended. After every heartbeat (twice a day), and when
+// the participant opens the messages page, the extension asks the server for the messages that wait for its
+// participant ID (GET /messages: those this ID has not read yet; a server without the route answers 404). A
+// message new to this computer is kept (teamMessages), shown as a notification, counted on the icon, and shown
+// in a small window on the next page of a chat site. It stays new until the participant clicks OK there, in
+// the popup or on the messages page (ui/messages.html, which lists them all). The server hears when a message
+// arrived here and when it was read (the events "team_message"), and no longer sends one that was read.
+// NOTE: [design thought] a message is shown as text, never as HTML (the pages set textContent), and cut to a
+// length: the server is the study's own, but what it sends is not trusted with the extension's pages
+const TEAM_TITLE_CHARS = 120, TEAM_TEXT_CHARS = 2000, TEAM_MESSAGES_KEPT = 30;
+const TEAM_MESSAGE_GAP_MS = 4 * 3600 * 1000;      // a message closed without OK comes back on a chat page this much later
+const TEAM_CHECK_GAP_MS = 60 * 1000;              // the messages page asks the server at most this often
+let teamCheckedAt = 0;
+
+async function fetchTeamMessages(settings) {
+  if (!settings.participantId) return;
+  let waiting;
+  try {
+    const query = new URLSearchParams({ participant_id: settings.participantId, version: chrome.runtime.getManifest().version });
+    const response = await fetch(`${settings.serverUrl}/messages?${query}`, { headers: { "X-Study-Key": settings.studyKey }, signal: AbortSignal.timeout(10000) });
+    if (!response.ok) return;
+    waiting = (await response.json()).messages;
+  } catch (error) { return; }       // offline: asked again at the next heartbeat
+  // NOTE: [edge case callout] an answer about a participant ID changed meanwhile is not this ID's messages
+  if (!Array.isArray(waiting) || (await getSettings()).participantId !== settings.participantId) return;
+  // (an id is letters, digits, ".", "_" and "-": it names the message's notification, "team|<id>")
+  const valid = (message) => typeof message?.id === "string" && /^[\w.-]{1,80}$/.test(message.id) && typeof message.text === "string" && message.text.trim();
+  await addTeamMessages(waiting.filter(valid).map((message) => ({
+    id: message.id, title: String(message.title ?? "").trim().slice(0, TEAM_TITLE_CHARS), text: message.text.trim().slice(0, TEAM_TEXT_CHARS),
+    sentAt: Number.isFinite(message.sent_at) ? message.sent_at : null })), settings);
+}
+
+// Messages that are new to this computer are kept, shown as notifications, counted on the icon, and reported
+// to the study server. `messages`: [{id, title, text, sentAt}], from the server or made here (`automatic`: the
+// reminder at the end of a study week, weekCheck). One this computer knows already is not new: it is on the
+// screen, or read (the server hears that soon).
+async function addTeamMessages(messages, settings) {
+  const fresh = [];
+  await serialized("teamMessages", async () => {
+    const kept = (await load("teamMessages")) || [];
+    for (const message of messages) {
+      if (kept.some((each) => each.id === message.id)) continue;
+      const entry = { ...message, receivedAt: Date.now(), readAt: null };
+      kept.push(entry);
+      fresh.push(entry);
+    }
+    if (fresh.length) await save("teamMessages", kept.slice(-TEAM_MESSAGES_KEPT));
+  });
+  for (const message of fresh) {
+    chrome.notifications.create(`team|${message.id}`, {
+      type: "basic", iconUrl: "icons/icon128.png", title: `Advice Tracker: ${message.title || "a message from the study team"}`,
+      message: message.text, requireInteraction: true,
+    });
+    await count(message.automatic ? "week_reminder" : "team_message_received");
+    await upload("team_message", { message: message.id, state: "received", ...(message.automatic ? { automatic: true } : {}) }, settings);
+  }
+  if (fresh.length) await updateBadge();
+}
+
+// The messages page was opened: it shows what the server holds now, not what it held at the last heartbeat
+async function checkTeamMessages() {
+  if (Date.now() < teamCheckedAt + TEAM_CHECK_GAP_MS) return;
+  teamCheckedAt = Date.now();
+  await fetchTeamMessages(await getSettings());
+}
+
+// A message from the study team that is not read yet, in a small window on the chat page the participant just
+// opened: the oldest one that was not put on a chat page within the last TEAM_MESSAGE_GAP_MS. Also while
+// tracking is paused (a message may be about the pause); not on a site the participant excluded, where the
+// extension shows nothing.
+async function offerTeamMessage(tabId, url, settings) {
+  if (!settings.participantId || excluded(settings, url)) return false;
+  const now = Date.now();
+  const message = ((await load("teamMessages")) || []).find((each) => !each.readAt && now >= (each.offeredAt ?? 0) + TEAM_MESSAGE_GAP_MS);
+  if (!message) return false;
+  let response = null;
+  try {
+    response = await chrome.tabs.sendMessage(tabId, { type: "show_message", message: { id: message.id, title: message.title, text: message.text } });
+  } catch (error) { /* tab closed, or a page without the content script */ }
+  if (!response?.shown) return false;
+  await serialized("teamMessages", async () => {
+    const kept = (await load("teamMessages")) || [];
+    await save("teamMessages", kept.map((each) => (each.id === message.id ? { ...each, offeredAt: now } : each)));
+  });
+  return true;
+}
+
+// The participant clicked OK on a message (`where`: "chat", "popup" or "page"): it is read. Its notification
+// and its windows on chat pages go, and the server hears it (and how long the message waited here).
+async function onTeamMessageRead(message) {
+  let read = null;
+  await serialized("teamMessages", async () => {
+    const kept = (await load("teamMessages")) || [];
+    const entry = kept.find((each) => each.id === message.id);
+    if (!entry || entry.readAt) return;          // (read already, in another place: once)
+    entry.readAt = Date.now();
+    read = entry;
+    await save("teamMessages", kept);
+  });
+  if (!read) return;
+  chrome.notifications.clear(`team|${read.id}`);
+  for (const tab of await chrome.tabs.query({})) chrome.tabs.sendMessage(tab.id, { type: "close_message", id: read.id }).catch(() => {});
+  await count("team_message_read");
+  await upload("team_message", { message: read.id, state: "read", where: message.where ?? null,
+                                 seconds_waited: Math.round((read.readAt - read.receivedAt) / 1000), ...(read.automatic ? { automatic: true } : {}) },
+               await getSettings());
+  await updateBadge();
+}
+
+// ---------------- the reminder at the end of a study week (0.6.15) ----------------
+// The study's rules (ui/rules.html, as the consent form): a payment is made when the participant was active
+// in its time (each of weeks 1 to 3; weeks 4 and 5 together) and finished the due tasks; "if at the end of a
+// week you were not active or have due tasks left, we send you a reminder", and they have three more days.
+// The extension sends that reminder by itself. At the end of each paid part of the study (lib/modes.js
+// studyPeriods) it looks at what it holds: was the participant active (an advice conversation, answers to
+// questions, feedback), and are due tasks left (in weeks 1 to 3 the quick questions of advice conversations
+// never answered; at the end of week 5 the outcome questions). If something is missing, a message says what,
+// and by when: it is shown as the study team's messages are (a notification, a window on the chat pages, under
+// the icon, until OK). Three days later it looks again. Both times the study server hears what was found (the
+// events "week_status"): the study team decides about the payment, the extension only reminds and reports.
+// NOTE: [design thought] only what is due is counted as due: a week's end never counts outcome questions
+// (they are due at the end of the study), and never a past conversation (optional, paid apart). Both have
+// their own reminder every two days (remindOutcomes), which names a day only for what is due then.
+// NOTE: [edge case callout] Chrome may be closed when a part ends: the check then runs at the next start
+// (the alarm is set again whenever the worker starts, and every heartbeat checks too). A part whose three days
+// were over before this version was installed is left alone; one whose three days are over when its end is
+// first looked at is reported without a reminder (the day it would name has passed).
+const WEEK_REMINDER_DAYS = STUDY_CONFIG.weekReminderDays ?? 3;
+
+function weekCheck() {
+  return serialized("weekStatus", async () => {
+    const settings = await getSettings(), start = await studyDay(0), now = Date.now();
+    if (!settings.participantId || !Number.isFinite(start)) return;
+    let status = await load("weekStatus");
+    if (!status) {
+      status = { since: now, parts: {} };
+      // NOTE: [edge case callout] feedback sent before this version was installed has no time (only its count was
+      // kept): it counts as sent now, so the week in which the update came does not look inactive because of it
+      const sent = (await load("stats")) || {};
+      if ((sent.feedback || 0) + (sent.feedback_missed_advice || 0) > 0 && !(await load("feedbackAt"))) await save("feedbackAt", [now]);
+    }
+    const records = (await loadAll("episode:")).map(([, record]) => record);
+    const activity = [...records.flatMap(Modes.recordActivity), ...((await load("feedbackAt")) || []).map((at) => ({ at, kind: "feedback" }))];
+    const moments = [];              // the ends and the three-day marks still to come
+    for (const period of Modes.studyPeriods(NEW_ADVICE_DAYS, STUDY_CONFIG.studyDays)) {
+      const from = start + period.from * DAY_MS, to = start + period.to * DAY_MS, deadline = to + WEEK_REMINDER_DAYS * DAY_MS;
+      if (deadline <= status.since) continue;
+      const part = status.parts[period.name] || {};
+      const by = (kinds) => Modes.activeIn(activity, from, to, kinds);
+      const found = (moment, active, more) => ({ week: period.name, moment, ended_at: to, deadline_at: deadline, active,
+        active_by: { advice: by(["advice"]), answers: by(["answers"]), feedback: by(["feedback"]) }, due_left: Modes.dueLeft(records, period, to).length, ...more });
+      if (now >= to && !part.end) {
+        const event = found("end", by(), {});
+        // (the reminder: something is missing, and its three days are not over yet)
+        const reminded = (!event.active || event.due_left > 0) && now < deadline;
+        // NOTE: [edge case callout] active only through advice conversations that were never answered: should the
+        // participant answer "No" to all of them (not advice), nothing of the part is left that makes them active.
+        // The reminder says so, since no second one comes.
+        const answered = records.some((record) => record.source !== "past" && record.status !== "removed" && record.answers &&
+                                                   record.openedAt >= from && record.openedAt < to);
+        const unsure = event.active && !answered && !by(["answers", "feedback"]);
+        part.end = { at: now, active: event.active, due: event.due_left, reminded };
+        await save("weekStatus", { ...status, parts: { ...status.parts, [period.name]: part } });
+        await upload("week_status", { ...event, reminded }, settings);
+        if (reminded) await addTeamMessages([weekReminder(period, event.active, event.due_left, to, deadline, unsure)], settings);
+      }
+      if (now >= deadline && !part.deadline) {
+        // after the part's end, answers and feedback still make its participant active; a new advice conversation does not
+        const after = Modes.activeIn(activity, to, deadline, ["answers", "feedback"]);
+        const event = found("deadline", by() || after, { active_after_end: after });
+        part.deadline = { at: now, active: event.active, due: event.due_left };
+        await save("weekStatus", { ...status, parts: { ...status.parts, [period.name]: part } });
+        await upload("week_status", event, settings);
+      }
+      status.parts[period.name] = part;
+      moments.push(...(part.end ? [] : [to]), ...(part.deadline ? [] : [deadline]));
+    }
+    await save("weekStatus", status);
+    if (moments.length) chrome.alarms.create("weekCheck", { when: Math.max(Math.min(...moments), now + 60000) });
+    else await chrome.alarms.clear("weekCheck");
+  });
+}
+
+// The reminder's words, as a message (addTeamMessages). `active`, `due`: what was found at the end of the part
+// (was the participant active; how many conversations have due questions left), `to`: when it ended,
+// `deadline`: three days later; `unsure`: active only through conversations not answered yet (weekCheck).
+function weekReminder(period, active, due, to, deadline, unsure = false) {
+  const by = new Date(deadline).toLocaleString(undefined, { weekday: "long", month: "long", day: "numeric", hour: "numeric", minute: "2-digit" });
+  const weeks = period.last ? `weeks ${period.name.replace("-", " and ")}` : `week ${period.name}`;
+  const conversations = due === 1 ? "one advice conversation" : `${due} advice conversations`;
+  const lines = [];
+  if (due && period.last) {
+    lines.push(`The outcome questions of ${conversations} are not answered yet. They are due now, even if you have not acted yet or it is too early ` +
+               `to tell: please answer them by ${by} (click the Advice Tracker icon, then Outcomes). Answers still missing then are late: you are ` +
+               "then paid in proportion to the outcome questions you answered on time, and do not receive the high-quality bonus.");
+  } else if (due) {
+    lines.push(`The quick questions of ${conversations} are not answered yet. They are due: please answer them by ${by} (click the Advice Tracker ` +
+               "icon, then Quick check-ins; if a conversation was not advice, answer No there). Answers still missing then are late: you are then " +
+               "paid in proportion to the advice conversations you answered on time, and do not receive the high-quality bonus.");
+    if (unsure) {
+      lines.push(`If none of them was advice, nothing else shows that you were active in ${weeks}: please then also send concrete feedback by ` +
+                 `${by} (Advice Tracker icon, then “Send feedback on the study”), for example about what the extension took for advice.`);
+    }
+  }
+  if (!active) {
+    lines.push(`The extension recorded no activity of yours in ${weeks}: ${period.last ? "" : "no advice conversation, "}no answers to its questions, no ` +
+               `feedback. To stay active, by ${by} answer quick questions or follow-up questions that are waiting, if there are any, or send ` +
+               "concrete feedback (Advice Tracker icon, then “Send feedback on the study”), for example about an advice conversation the " +
+               `extension missed or a possible improvement. An advice conversation that starts now does not count for ${weeks}. If you are still ` +
+               `not active then, you lose the payment for ${weeks} ($10) and the high-quality bonus.`);
+  }
+  return { id: `week-${period.name}`, title: `${weeks[0].toUpperCase()}${weeks.slice(1)} of your study ${period.last ? "have" : "has"} ended: please finish by ${by}`,
+           text: lines.join("\n\n"), sentAt: to, automatic: true };
+}
+
 // When the extension is removed, Chrome opens this address: the study server records that the
 // participant uninstalled it. (The page cannot be a header-protected request, so the study key
 // goes in the address; it ships in every copy of the extension anyway.)
@@ -2965,9 +3221,11 @@ async function onHeld(message) {
 // waits in the queue (offline, or no participant ID yet).
 async function onFeedback(message) {
   const settings = await getSettings();
-  const { text, counts } = Redact.redact(message.text, settings.redactNames);
+  const { text, counts } = await withNumbers((numbers) => Redact.redact(message.text, settings.redactNames, numbers));
   const kind = message.kind === "missed_advice" ? "missed_advice" : "feedback";
   await count(kind === "feedback" ? "feedback" : "feedback_missed_advice");
+  // (when it was sent: feedback is one of the ways to be active in a study week, weekCheck; the last 200 times)
+  await serialized("feedbackAt", async () => save("feedbackAt", [...((await load("feedbackAt")) || []), Date.now()].slice(-200)));
   return upload("feedback", { kind, text, redacted: counts, version: chrome.runtime.getManifest().version }, settings);
 }
 
@@ -2987,7 +3245,7 @@ async function deleteAll() {
   // now is ever read again (deletedAt is the floor of lib/history.js windows).
   const kept = {};
   for (const name of ["settings", "heartbeatAt", "joinedAt", "joinedEstimated", "joinedChecked", "pastBefore", "trackingLog", "aliveLog", "aliveGaps", "installId",
-                      "lastMessageAt", "pausedRemindedAt",
+                      "lastMessageAt", "pausedRemindedAt", "weekStatus", "feedbackAt", "teamMessages",
                       "historyEpoch", "hconfig", ...HISTORY_SITES.map((host) => `haccount:${host}`)]) {
     const value = await load(name);
     if (value !== undefined) kept[name] = value;
@@ -2995,9 +3253,19 @@ async function deleteAll() {
   const before = kept.settings ? { ...kept.settings } : null;
   if (kept.settings) kept.settings = { ...kept.settings, readPast: false };
   kept.historyEpoch = (kept.historyEpoch || 0) + 1;
-  await chrome.storage.local.clear();
-  await chrome.storage.session.clear();
-  await chrome.storage.local.set(kept);
+  // NOTE: [edge case callout] the table of the numbered placeholders (lib/redact.js) lets go of its fingerprints
+  // and keeps how many numbers are taken: a name that comes up later then never gets a number that an upload
+  // made before now used for another name. The store is emptied in the table's own chain, so a redaction
+  // under way finishes first, and one that comes meanwhile finds the counts.
+  // (also kept, above: the messages for the participant, what was found at the end of each study week, and
+  // when feedback was sent: the study's own words and times, nothing of a conversation)
+  await serialized("redactNumbers", async () => {
+    const numbers = await load("redactNumbers");
+    if (numbers) kept.redactNumbers = Redact.forgetNumbers(numbers);
+    await chrome.storage.local.clear();
+    await chrome.storage.session.clear();
+    await chrome.storage.local.set(kept);
+  });
   const forget = (tab) => Promise.race([chrome.tabs.sendMessage(tab.id, { type: "forget" }).catch(() => {}),
                                         new Promise((resolve) => setTimeout(resolve, 2000))]);
   await Promise.all((await chrome.tabs.query({})).map(forget));
@@ -3008,6 +3276,7 @@ async function deleteAll() {
   await keepOutcomesAlarm();
   await keepPausedReminder();
   await keepHistoryAlarm();
+  await weekCheck();                 // (its alarm went with the others)
   await updateBadge();
   // past conversations were turned off with the data: reported as any opt-out is (the settings' own
   // change event does not fire for a cleared store)
@@ -3028,6 +3297,10 @@ function openCheckin(query) {
 }
 function openOutcomes(query) {
   chrome.tabs.create({ url: chrome.runtime.getURL(`ui/outcomes.html${query}`) });
+}
+// ... and the page of the messages from the study team (0.6.15)
+function openMessages() {
+  chrome.tabs.create({ url: chrome.runtime.getURL("ui/messages.html") });
 }
 
 // ---------------- event wiring ----------------
@@ -3055,6 +3328,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   // (the popup says whether the feedback went now or waits: onFeedback)
   if (message.type === "feedback") {
     onFeedback(message).then((sent) => sendResponse({ sent }));
+    return true;
+  }
+  // (the popup and the messages page show the message as read once it is)
+  if (message.type === "message_read") {
+    onTeamMessageRead(message).then(() => sendResponse({ ok: true }));
+    return true;
+  }
+  // a conversation as it will be sent, for a page that shows it before it goes (ui/checkin.js): redacted here,
+  // where the placeholders get their numbers, so the page shows the very text the upload will hold
+  if (message.type === "redact_transcript") {
+    getSettings().then((settings) => withNumbers((numbers) => Questions.transcript(message.messages, settings.redactNames, numbers))).then(sendResponse);
     return true;
   }
   // (the page thanks the participant only for answers taken: onPastSubmitted)
@@ -3094,6 +3378,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     case "held": onHeld(message); break;
     case "panel_gone": offerRefused(tabId); break;              // a page went without an answer ("No", or dealt with elsewhere)
     case "open_help": openCheckin("#advice"); break;            // "what counts as advice?" on a chat page
+    case "check_messages": checkTeamMessages(); break;          // the messages page was opened
   }
 });
 
@@ -3115,6 +3400,7 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   else if (kind === "heartbeat") await heartbeatIfDue();
   else if (kind === "pausedReminder") await remindPaused();
   else if (kind === "outcomesReminder") await remindOutcomes();
+  else if (kind === "weekCheck") await weekCheck();
 });
 
 chrome.notifications.onClicked.addListener(async (id) => {
@@ -3122,6 +3408,7 @@ chrome.notifications.onClicked.addListener(async (id) => {
   chrome.notifications.clear(id);
   if (kind === "paused") return chrome.runtime.openOptionsPage();
   if (kind === "outcomes") return openOutcomes("");
+  if (kind === "team") return openMessages();           // (the page shows the whole message, with its OK)
   // (a check-in notification from before 0.6.9 that is still in the tray)
   if (kind === "checkin") return openOutcomes(`?episode=${encodeURIComponent(episode)}`);
   // NOTE: [edge case callout] a notification can stay in the tray after its question was answered
@@ -3288,5 +3575,6 @@ chrome.permissions.onRemoved.addListener(statusChanged);
 // address is current
 heartbeatIfDue().then(keepHeartbeatAlarm);
 keepPausedReminder();
+weekCheck();
 noteAlive();
 getSettings().then(setUninstallUrl);

@@ -3,6 +3,72 @@
 What changed in each version of the Advice Tracker extension, newest first: for participants, and in
 the *Data notes* for the study team. How to install and use it: [README.md](README.md).
 
+## 0.6.15
+
+A reminder at the end of each study week, messages from the study team, numbered labels for
+personal details, and the rules as the consent form reads since November 11.
+
+- **A reminder at the end of a study week, sent by the extension itself.** A payment needs you to
+  have been active in its time (each of weeks 1 to 3; weeks 4 and 5 together) and to have finished
+  the due tasks. At the end of weeks 1, 2 and 3 and of week 5 the extension looks at what it holds:
+  were you active (an advice conversation, answers to its questions, feedback), and are due tasks
+  left: in weeks 1 to 3 the quick questions that wait for you on the Quick check-ins page (advice
+  conversations you never answered; not one still going on that you were not asked about yet), at
+  the end of week 5 the outcome questions. If something is missing, a reminder says what, and by which day
+  to finish (three days later); it shows as a notification, in a small window on your AI chat
+  pages and under the extension icon, until you click **OK, I have read it**. Outcome questions
+  are never counted as due before the end of week 5, and past conversations never. If Chrome was
+  closed when the week ended, the reminder comes at its next start (not once its three days are
+  over).
+- **Messages from the study team.** The study team can also send you a message through the extension:
+  a request to update, a note about your participation. After each
+  heartbeat (twice a day), and when you open the messages page, the extension asks the study
+  server whether there is one for your participant ID. A new message shows as a Chrome
+  notification, in a small window at the top right of your AI chat pages (also while tracking is
+  paused; never on a site you excluded), and in the menu under the extension icon, until you click
+  **OK, I have read it**; the number on the icon counts it. *Messages from the study team*, under
+  the icon, lists them all. A message is shown as plain text.
+- **Numbered labels for personal details.** In what the study stores (your answers, the
+  conversations sent with them, your feedback), the same detail now gets the same numbered label
+  wherever it comes up: `[NAME1]`, `[NAME2]`, `[EMAIL1]`, ... instead of `[NAME]` and `[EMAIL]`
+  everywhere. Capitals do not matter (`Emma`, `EMMA` and a listed `emma` are one name); a typo, a
+  nickname, or a first name alone after the full name counts as another. The numbers are your own,
+  and come from a table kept on your computer only, with a fingerprint of each detail, not the
+  detail itself; "Delete all data" empties it. A past conversation's card shows the conversation
+  with these labels, exactly as it will be sent.
+- **The outcome questions.** The first one is now "Did you follow or plan to follow the advice?",
+  with the answers "Yes, the AI reinforced my initial decision, and I followed my initial
+  decision", "Yes, the AI changed my decision somehow", "Yes, but only partly", "No, I decided
+  against it" and "No, the situation changed or resolved itself"; the second one asks "What did
+  you actually do, or decide, and why?". The same holds for past conversations.
+- **Study rules as in the current consent form.** Not active at the end of the 3 days after a
+  reminder: the week's payment ($10) is lost. Late answers: paid in proportion; in week 5 out of
+  all conversations after the start of the study. Not active or late in any week: no high-quality
+  bonus. Past conversations are paid when answered on time (by the end of week 5), and are not
+  among the week's due tasks. The details of participation ending after week 3 are gone, as in the
+  form.
+- **The reminder of your Outcomes page** (every two days) says by when the outcome questions are
+  due only in the last week of your study, when they are due; before, it asks without a deadline.
+- **Install guide.** Keep the extension's folder where it is for the whole study (do not delete,
+  move or rename it), and how to pin the icon, with a picture.
+- Data notes: uploaded texts (`transcript`, free-text answers, feedback `text`) carry numbered
+  placeholders, per participant and install (`[NAME1]`, `[file: NAME1_cv.pdf]`); the `redacted`
+  counts are unchanged, and `POST /judge` still gets the placeholders without numbers. `checkin`
+  and `past_annotation` answers: `followed` is one of `reinforced`, `ai_changed`, `partly`,
+  `against`, `changed` (before: `fully`, `partly`, `plan`, `against`, `changed`, `forgot`), and
+  `feel_better` is asked after the first three. New event `team_message` (`message`: the id,
+  `state` `received` or `read`, with `where` and `seconds_waited` when read; `automatic: true`
+  for the extension's own reminder, whose `message` is `week-1`, `week-2`, `week-3` or
+  `week-4-5`); the heartbeat carries `unread_messages`. New event `week_status`: what the extension
+  found at the end of a paid part of the study and three days later (`week`, `moment` `end` or
+  `deadline`, `ended_at`, `deadline_at`, `active`, `active_by` {`advice`, `answers`, `feedback`},
+  `due_left`, `reminded`, `active_after_end`): for the study team's decision about the payment,
+  which the extension does not make. The extension asks
+  `GET /messages?participant_id=&version=`, which the study server answers from relay 0.6.2 on (an
+  older server answers 404: no messages from the team; the automatic reminder needs no server
+  change). "Delete all data" keeps the messages, what was found at each week's end, and the times
+  feedback was sent.
+
 ## 0.6.14
 
 The study's updated rules (payments, reminders, pauses), as in the updated consent form.

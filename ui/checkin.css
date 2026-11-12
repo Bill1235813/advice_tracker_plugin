@@ -19,6 +19,8 @@ h1 { font-size: 20px; margin: 0 0 4px; } .sub { color: #647084; margin-top: 0; }
 .scale input { display: block; margin: 0 auto 2px; }
 input[type=radio], input[type=checkbox], select { accent-color: #4f5bd5; }
 textarea, select { width: 100%; max-width: 520px; box-sizing: border-box; font: inherit; padding: 6px; border: 1px solid #d9d9d3; border-radius: 6px; }
+/* "Did you follow or plan to follow the advice?" (0.6.15): its answers are long sentences, shown whole once one is chosen */
+select[name="followed"] { max-width: 660px; }
 .transcript { min-height: 160px; font-size: 12px; font-family: ui-monospace, monospace; }
 .checks label { display: block; margin: 2px 0; }
 .support { border: 1px solid #b9dcc5; background: #f3faf5; border-radius: 10px; padding: 4px 18px 10px; margin: 24px 0; }

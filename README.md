@@ -16,7 +16,29 @@ version (one-click install) is in preparation; until then, follow the steps belo
 
 **How it works, in detail:** [`docs/advice-tracker-design.pdf`](docs/advice-tracker-design.pdf).
 
-## What's new in version 0.6.14
+## What's new in version 0.6.15
+
+- **A reminder at the end of a study week.** At the end of weeks 1, 2 and 3, and at the end of week
+  5, the extension looks at whether you were active and whether due tasks are left: in weeks 1 to 3
+  the quick questions of advice conversations you have not answered, at the end of week 5 the
+  outcome questions. If something is missing, it reminds you by itself and names the day by which
+  to finish (three days later).
+- **Messages from the study team.** The study team can also send you a message through the
+  extension, for example a request to update. Reminders and messages show as a Chrome
+  notification and in a small window on your AI chat pages until you click **OK, I have read it**,
+  and stay under the extension icon → **Messages from the study team**.
+- **Numbered labels for personal details.** In what is sent to the study, a name is no longer
+  replaced by `[NAME]` but by `[NAME1]`, `[NAME2]`, ...: the same name gets the same label wherever
+  it comes up, so the study team can tell that two mentions are the same person without knowing
+  who. The same holds for e-mail addresses, phone numbers and the other details.
+- **The outcome questions** now begin with "Did you follow or plan to follow the advice?" (with
+  answers that say whether the AI reinforced or changed your decision) and "What did you actually
+  do, or decide, and why?".
+- **Study rules** match the current consent form: what happens when you were not active or answers
+  are late, and that past conversations are paid when answered on time.
+- **Keep the extension's folder** where it is for the whole study: see *Install*, step 1.
+
+In 0.6.14:
 
 - **The study's five weeks.** New advice conversations are collected until the end of week 3. In
   week 4 only conversations that began before are still followed. All follow-up questions, and the
@@ -62,8 +84,10 @@ Earlier versions, and the details: [CHANGELOG.md](CHANGELOG.md).
 1. **Get the code.** On this page click the green **Code** button → **Download ZIP**, then
    unzip it. You get a folder named `advice_tracker_plugin-main` (`-dev` for the dev branch)
    containing `manifest.json`.
-   Keep this folder somewhere permanent (Documents, not Downloads): Chrome loads the
-   extension from it every time it starts.
+   Put this folder somewhere permanent (Documents, not Downloads) **before** you go on.
+   **Do not delete, move or rename this folder during the five weeks of the study**: Chrome runs
+   the extension from it every time it starts. Without the folder Chrome turns the extension off,
+   and the answers and conversations it keeps on your computer for the study are lost with it.
    *(Alternatively: `git clone https://github.com/Bill1235813/advice_tracker_plugin.git`.)*
 2. **Open the extensions page.** Paste `chrome://extensions` into the address bar and press
    Enter (or Menu ⋮ → Extensions → Manage Extensions).
@@ -73,7 +97,12 @@ Earlier versions, and the details: [CHANGELOG.md](CHANGELOG.md).
 5. The **settings page opens by itself.** Type your Participant ID (your Prolific ID) and click
    **Save**.
    *(If the page did not open: click the puzzle-piece icon → Advice Tracker → ⋮ → Options.)*
-6. **Pin the icon**: puzzle-piece icon (top right of Chrome) → pin next to Advice Tracker.
+6. **Pin the icon**, so that it stays visible and shows how many questions are waiting:
+   click the **puzzle-piece icon** (Extensions) at the top right of Chrome, to the right of the
+   address bar; in the list that opens, click the **pin** next to *Advice Tracker (research
+   study)*. The Advice Tracker icon now stays next to the puzzle piece.
+
+   ![How to pin Advice Tracker: click the puzzle-piece icon, then the pin next to Advice Tracker; its icon then stays in the toolbar](docs/pin-advice-tracker.png)
 7. **Reload any chat tabs** that were already open (the extension only attaches to pages
    opened after it was installed).
 
@@ -130,6 +159,12 @@ when, and the rules (they are the consent form's). In short:
 - **Your answers are reviewed** by the study team. Updating them when a conversation goes on is
   encouraged, not required. If the extension asks about a conversation that was not advice, answer
   **No**; if it misses one, please use **Report an advice conversation we missed**.
+- **A reminder at the end of weeks 1, 2, 3 and 5**, if you were not active in that time or have due
+  tasks left (weeks 1 to 3: quick questions not answered; week 5: outcome questions not answered):
+  the extension sends it by itself, with the day by which to finish, three days later.
+- **Messages from the study team** (for example a request to update) and these reminders show as
+  a notification and on your AI chat pages, and stay under the extension icon → **Messages from
+  the study team**.
 
 ## What it collects, and your controls
 
@@ -180,14 +215,29 @@ when, and the rules (they are the consent form's). In short:
   removed), so the study team can see what the model got wrong; the conversation is then deleted
   from your computer. A past conversation you **Skip** is deleted and its text is not sent.
   Names, e-mail addresses, phone numbers, web and street addresses, long numbers and similar
-  details are replaced with placeholders such as `[NAME]` on your computer before anything is sent;
-  add the names that matter most to you in the settings.
+  details are replaced with labels on your computer before anything is sent; add the names that
+  matter most to you in the settings. In what the study stores (your answers, the conversations sent
+  with them, your feedback) the labels are numbered: the first name is `[NAME1]`, the next
+  `[NAME2]`, and the same name gets the same label again, in any of your conversations (capital
+  and small letters make no difference), so the study team can tell that two mentions are
+  the same person without knowing who it is. The numbers are your own: `[NAME1]` of two
+  participants are two people. To keep them the same, the extension keeps a table on your
+  computer, which never leaves it and holds a fingerprint of each detail, not the detail itself;
+  "Delete all data" empties it. (The messages checked by the study's AI model have labels without
+  numbers, as before.)
 - Twice a day the extension sends a heartbeat with counts (found / rated / not advice), whether
   tracking is on (paused or not, and on which of the five sites it can capture), and when you last
   sent a message to one of the five AI assistants (the time only, never the text). A change of what
   is tracked is reported when it happens, and removing the extension is reported too. The study team
-  uses this to know when the extension was tracking and in use (see *Study rules* for what a pause
-  means for payment).
+  uses this to know that the extension is still installed and when it was tracking (see *Study
+  rules* for what a pause means for payment).
+- After each heartbeat the extension asks the study server whether the study team has a **message**
+  for your participant ID, and tells the server when a message arrived and when you clicked OK on
+  it. A message is shown as plain text.
+- At the end of each of weeks 1 to 3 and of week 5, and three days later, the extension tells the
+  study server what it found: whether you were active (an advice conversation, answers, feedback:
+  yes or no for each), how many advice conversations still have due questions, and whether it
+  reminded you. Counts and times only, nothing of a conversation.
 - With each set of answers the extension sends how long the questions took you (when they appeared,
   when you finished the first and the last answer, when you pressed Submit). The study team uses it
   when it reviews the quality of the answers.
@@ -232,7 +282,8 @@ Full privacy policy: the link in the study e-mail.
 
 ## Updating and uninstalling
 
-- **Update**: download the ZIP again, replace the contents of your folder, then on
+- **Update**: download the ZIP again, replace the contents of your folder (the same folder, in
+  the same place and with the same name: do not delete it first), then on
   `chrome://extensions` click the circular reload arrow on the Advice Tracker card and reload
   your chat tabs. (The Web Store version will update itself.)
 - **Uninstall / withdraw**: `chrome://extensions` → **Remove** on the card. To also wipe the local
@@ -241,7 +292,7 @@ Full privacy policy: the link in the study e-mail.
 
 ## For reviewers and developers
 
-- `manifest.json` (Manifest V3, version 0.6.14): permissions `storage`, `unlimitedStorage` (no
+- `manifest.json` (Manifest V3, version 0.6.15): permissions `storage`, `unlimitedStorage` (no
   install warning), `alarms`, `notifications`, and host permissions for the five chat sites (plus
   `localhost` for the mock test page); no remote code.
 - Past and other-device conversations (0.6; past ones opt-in, other devices always read since
@@ -267,15 +318,24 @@ Full privacy policy: the link in the study e-mail.
   them to the current server), and the study's weeks in days from when the participant joined
   (0.6.14: `newAdviceDays` 21, `continueDays` 28, `studyDays` 35; `background.js` `studyDay`,
   `cutOf`); `ui/rules.html` is the study rules page, with the participant's calendar
-  (`ui/rules.js`). The settings page hides the research team's settings (the server
+  (`ui/rules.js`); `ui/messages.html` lists the messages from the study team (0.6.15:
+  `background.js` `fetchTeamMessages`, `offerTeamMessage`, `onTeamMessageRead`;
+  `content/rating_panel.js` `showMessage`). The settings page hides the research team's settings (the server
   and key, the follow-up time, the quiet time) since 0.6.12: `options/options.html?advanced`
   shows them, for a test.
 - Uploads (`POST /events`; the episode events carry `source`: web, app or past; an answer to a
   question that does not apply is `null`, e.g. `outcome` when `too_early` is ticked, `feel_better`
-  unless `followed` is `fully` or `partly`). Since 0.6.14 `episode_rating`, `checkin` and
+  unless `followed` is `reinforced`, `ai_changed` or `partly`; until 0.6.14 the answers of
+  `followed` were `fully`, `partly`, `plan`, `against`, `changed`, `forgot`). Since 0.6.14
+  `episode_rating`, `checkin` and
   `past_annotation` carry `timing`: `shown_at`, `first_answer_at`, `last_answer_at`, `submitted_at`
   and `seconds` (from the first answer finished to the last; `null` when nothing on the form
-  changed, or the page was older than 0.6.14).
+  changed, or the page was older than 0.6.14). Since 0.6.15 the placeholders in every uploaded
+  text (transcripts, free-text answers, feedback) are numbered per participant (`[NAME1]`,
+  `[EMAIL2]`, `[file: NAME1_cv.pdf]`; `lib/redact.js`, the table is `redactNumbers` in the
+  extension's storage); the `redacted` counts are as before, and the texts of `POST /judge` keep
+  the placeholders without numbers. A reinstall, a second computer or "Delete all data" starts
+  new numbers (after a delete they go on from the last one, so no number is used twice).
   - `episode_rating`: answers + the redacted transcript from the opening turn through the answered one.
   - `episode_transcript`: the complete redacted transcript from the opening turn, when an answered
     episode ends (or when tracking is on again, if it ended while tracking was off), with
@@ -309,8 +369,28 @@ Full privacy policy: the link in the study e-mail.
   - `feedback`: what the participant typed under the extension icon (`text`, redacted on the
     computer), its `kind` (0.6.14: `feedback`, or `missed_advice` for a report of an advice
     conversation the extension did not ask about), the `redacted` counts and the extension's `version`.
+  - `team_message` (0.6.15): a message from the study team arrived on this computer (`message`: its
+    id, `state` `received`) or the participant clicked OK on it (`state` `read`, `where`: chat,
+    popup or page, `seconds_waited`). The heartbeat carries `unread_messages`. The extension's own
+    reminder at the end of a study week is such a message too (`message` `week-1`, ..., `week-4-5`,
+    with `automatic: true`).
+  - `week_status` (0.6.15, `background.js` `weekCheck`, `lib/modes.js` `studyPeriods`,
+    `recordActivity`, `dueLeft`): what the extension found at the end of a paid part of the study
+    (`week` `1`, `2`, `3` or `4-5`; `moment` `end`) and three days later (`moment` `deadline`):
+    `ended_at`, `deadline_at`, `active`, `active_by` (`advice`, `answers`, `feedback` within the
+    part), `due_left` (conversations whose due questions are not answered: in weeks 1 to 3 the
+    quick questions that wait on the Quick check-ins page, i.e. conversations never answered that
+    ended, were asked about, or were found on another device; the outcome questions at the end of
+    week 5; never a past conversation),
+    `reminded` (at the end: a reminder was shown), `active_after_end` (at the deadline: answers or
+    feedback in the three days). A part whose three days were over before 0.6.15 was installed
+    sends nothing.
 - The extension also asks `GET /past?participant_id=` for the fingerprints of the past conversations
-  the participant ID annotated, on any install, and `GET /config`, whose `{history: {"<site>": false}}`
+  the participant ID annotated, on any install, `GET /messages?participant_id=&version=` (0.6.15,
+  after each heartbeat and when the messages page opens) for the study team's messages this
+  participant ID has not read yet (`{messages: [{id, title, text, sent_at}]}`; an id is at most 80
+  letters, digits, `.`, `_` or `-`; the server sends a message until it has the `read` event), and
+  `GET /config`, whose `{history: {"<site>": false}}`
   stops reading a site. On removal Chrome opens `<server>/uninstalled?participant_id=...&key=...`,
   which the study server must answer (it records an `uninstalled` event). Each version's changes to
   these: [CHANGELOG.md](CHANGELOG.md).

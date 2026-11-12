@@ -1,0 +1,24 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Advice Tracker messages</title>
+<link rel="stylesheet" href="checkin.css">
+<style>
+  .card.new { border-left: 4px solid #4f5bd5; }
+  .message-text { white-space: pre-wrap; overflow-wrap: anywhere; margin: 6px 0 0; } .message-text a { color: #4f5bd5; }
+</style>
+<!-- The messages for this participant (0.6.15): the reminders the extension makes itself at the end of a study
+     week (background.js weekCheck), and what the study team sent (fetched from the study server after the
+     status signal, twice a day, and when this page is opened: fetchTeamMessages). messages.js lists them, the
+     new ones first, each with its OK. -->
+<div class="wrap">
+  <h1>Messages from the study team</h1>
+  <p class="sub">At the end of a study week the extension reminds you here if you were not active or have due tasks left, and
+    says by when to finish. The study team can also send you a message here, for example a request to update the extension. A
+    new one also shows as a notification and in a small window on your AI chat pages, until you click
+    <b>OK, I have read it</b>. To answer one, click the Advice Tracker icon, then <b>Send feedback on the study</b>, or send us
+    a message on Prolific.</p>
+  <p class="pages">Your questions: <a href="checkin.html">quick check-ins</a> · <a href="outcomes.html">your Outcomes page</a> ·
+    <a href="rules.html">study rules</a></p>
+  <div id="list"></div>
+</div>
+<script src="messages.js"></script>

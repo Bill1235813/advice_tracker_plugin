@@ -10,7 +10,9 @@
 // fourth one (combined mode) asks only step 1, quoting the request, right after the first advice
 // turn, and also disappears by itself (after Yes, the ratings page later starts at step 2). A fifth
 // one (0.6.9) is the follow-up about a conversation from a week or more ago: did you decide, did you
-// act, and then the way to its outcome questions, or "too early to tell" (offerFollowup).
+// act, and then the way to its outcome questions, or "too early to tell" (offerFollowup). A sixth one
+// (0.6.15) is not a question: a message from the study team, in a window of its own at the top right
+// (showMessage).
 // An open page stays current: the background sends it the episode's newer state (more turns, the
 // complete reply, or a new request when the episode ended), and everything typed into it stays.
 // All are rendered inside shadow roots, so the host page's CSS cannot restyle them and vice versa.
@@ -74,6 +76,8 @@
     .followup.minimized .body { display: none; }
     .followup select { margin-top: 6px; }
     .followup a { color: #4f5bd5; }
+    .offer.message { top: 18px; bottom: auto; width: 360px; }
+    .message .text { white-space: pre-wrap; overflow-wrap: anywhere; margin-top: 6px; max-height: 45vh; overflow: auto; }
   `;
   const waiting = [];            // pages asked for while another one was open
   // NOTE: [edge case callout] the extension was updated or reloaded while a page or pop-up was open:
@@ -538,5 +542,44 @@
     return true;
   }
 
-  root.RatingPanel = { show, refresh, close, closeOffer, offerUpdate, offerTab, offerConfirm, offerInvite, offerFollowup };
+  // A message from the study team (0.6.15, background.js offerTeamMessage): the team's words, as text, in a
+  // small window at the top right. It is apart from the questions at the bottom right, so both can be on the
+  // page, and it does not go away by itself: OK marks the message as read; Later closes the window, and the
+  // message comes back another time (it is also under the extension's icon). While one is on the page, another
+  // waits. Returns whether this message is on the page now.
+  function showMessage(message) {
+    const open = document.getElementById("advice-tracker-message");
+    if (open) return open.dataset.message === message.id;
+    const host = document.createElement("div");
+    host.id = "advice-tracker-message";
+    host.dataset.message = message.id;
+    const shadow = styled(host);
+    shadow.innerHTML = `
+      <div class="offer message"><b>Advice Tracker</b> (research study)<br><b id="title"></b><div class="text" id="text"></div>
+        <div class="actions"><button id="later">Later</button><button class="primary" id="ok">OK, I have read it</button></div></div>`;
+    // NOTE: [design thought] textContent, not HTML: whatever the study server sent is shown as plain text
+    shadow.getElementById("title").textContent = message.title || "A message from the study team";
+    shadow.getElementById("text").textContent = message.text;
+    document.body.appendChild(host);
+    shadow.getElementById("later").onclick = () => host.remove();
+    shadow.getElementById("ok").onclick = () => {
+      // (cut off from the extension, e.g. it was just updated: the click cannot be sent, and the message stays new)
+      if (!chrome.runtime?.id) {
+        shadow.getElementById("text").textContent = "Advice Tracker was updated meanwhile. Please reload this page; the message is under the Advice Tracker icon.";
+        shadow.getElementById("ok").hidden = true;
+        return;
+      }
+      send({ type: "message_read", id: message.id, where: "chat" });
+      host.remove();
+    };
+    return true;
+  }
+
+  // The message was read elsewhere (the popup, the messages page, another tab): its window here goes
+  function closeMessage(id) {
+    const open = document.getElementById("advice-tracker-message");
+    if (open?.dataset.message === id) open.remove();
+  }
+
+  root.RatingPanel = { show, refresh, close, closeOffer, offerUpdate, offerTab, offerConfirm, offerInvite, offerFollowup, showMessage, closeMessage };
 })(self);

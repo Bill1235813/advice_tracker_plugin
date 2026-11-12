@@ -210,7 +210,8 @@ function itemCard(episode, settings, now) {
     : answered ? "Your advice conversation continued (for example on your phone or another device). Please update any answer that is different now:"
     : episode.source === "app" ? `On ${when} you had this conversation, which was not recorded as it happened (for example on your phone or another device):`
     : `On ${when} you asked the AI for advice here${ended ? " (this conversation has ended)" : ""}:`;
-  const review = past ? Questions.transcript((episode.messages || []).slice(transcriptFrom(episode)), settings.redactNames || []) : null;
+  // (a past one shows its conversation as it will be sent, from the advice request on: redacted below)
+  const review = past ? (episode.messages || []).slice(transcriptFrom(episode)) : null;
   card.classList.add("has-queue");
   card.innerHTML = `<h2>${Questions.escape(episode.site)} · ${Questions.escape(when)}${episode.title ? ` · “${Questions.escape(episode.title)}”` : ""}</h2>
     <div class="queue-box"><span class="queue-count" data-site="${Questions.escape(episode.site)}" data-source="${Questions.escape(episode.source || "web")}">${Questions.escape(queueLine(episode))}</span>
@@ -230,12 +231,19 @@ function itemCard(episode, settings, now) {
     <div class="form" ${confirmed ? "" : "hidden"}>
       ${Questions.render(questions)}
       ${review ? `<div class="item"><span class="q">Your conversation, as it will be sent with your answers</span>
-        <p class="meta">Names, e-mail addresses, phone numbers and similar details are removed automatically.</p>
-        <pre class="transcript-view">${Questions.escape(review.text)}</pre></div>` : ""}
+        <p class="meta">Names, e-mail addresses, phone numbers and similar details are removed automatically. Each becomes a
+          numbered label, and the same name gets the same label wherever it comes up ([NAME1], [NAME2], ...).</p>
+        <pre class="transcript-view"></pre></div>` : ""}
       <p class="meta">${Questions.escape(Questions.CONVERSATION_NOTES[episode.text] || Questions.CONVERSATION_NOTES.with_answers)}</p>
       <button type="button" class="submit">Submit</button> ${past ? '<button type="button" class="secondary skip">Skip this one</button>' : ""}</div>`;
   Questions.fill(card, questions, episode.answers);
   Questions.wire(card, questions);         // (a past one asks the check-in's questions: "too early to tell" clears the outcome)
+  if (review) {
+    redacted(review).then((result) => {
+      const view = card.querySelector(".transcript-view");        // (gone once the card was answered)
+      if (view) view.textContent = result.text;
+    });
+  }
   // the page counts as asked once it is on the screen (the update rule looks at that)
   chrome.runtime.sendMessage({ type: "rating_shown", id: episode.id, start: episode.start, end: episode.end });
   const done = (text) => { card.innerHTML = `<p class="done">${text}</p>`; };
@@ -289,6 +297,12 @@ function itemCard(episode, settings, now) {
 function followupNote(episode, settings) {
   if (episode.checkin) return " Its follow-up questions are on your Outcomes page.";
   return ` From about ${Questions.duration(Modes.followupSeconds(settings))} after you first asked, we will ask whether you made a decision and how it went.`;
+}
+
+// A conversation as it will be sent ({text, counts}): the background redacts it, since it keeps the table that
+// numbers the details removed ([NAME1], [NAME2], ...: lib/redact.js), so the page shows the very text that will go
+function redacted(messages) {
+  return chrome.runtime.sendMessage({ type: "redact_transcript", messages });
 }
 
 // the record's messages hold its turns start..end; the transcript starts at the opening
@@ -404,8 +418,7 @@ function checkinCard(episode, episodes, settings, stored) {
   const ago = days < 1 ? "Earlier today" : days === 1 ? "Yesterday" : `About ${days} days ago`;
   // an episode from 0.4: its conversation, redacted as it will be sent, for review
   const messages = episode.text === "at_checkin" ? reviewMessages(episode, stored) : [];
-  const review = messages.length ? Questions.transcript(messages, settings.redactNames || []) : null;
-  const removed = review ? Object.entries(review.counts).map(([kind, count]) => `${count} ${kind}`).join(", ") || "nothing found" : "";
+  let review = null;         // ... as the background redacted it ({text, counts}), once it has answered (below)
   card.innerHTML = `<h2>${Questions.escape(episode.site)} · ${new Date(episode.openedAt).toLocaleDateString()}</h2>
     <p>${ago} you asked an AI assistant for advice. What happened since?</p>${recall(episode)}
     ${later ? `<p class="meta">Since then you had ${later} more conversation(s) that looked related to this one.</p>` : ""}
@@ -414,12 +427,21 @@ function checkinCard(episode, episodes, settings, stored) {
     ${canDefer ? `<p class="meta">Is it too early to tell how things turned out?
       <button type="button" class="secondary early">Too early to tell: ask me again in ${Modes.ASK_AGAIN_DAYS} days</button></p>` : ""}
     ${Questions.render(questions)}
-    ${review ? `<div class="item"><span class="q">Your conversation, as we will store it</span>
+    ${messages.length ? `<div class="item"><span class="q">Your conversation, as we will store it</span>
       <p class="meta">Names, e-mail addresses, phone numbers and similar details were removed automatically
-        (${Questions.escape(removed)}). Delete anything else you do not want us to keep, then submit.</p>
-      <textarea class="transcript">${Questions.escape(review.text)}</textarea></div>` : ""}
+        (<span class="removed">…</span>). Delete anything else you do not want us to keep, then submit.</p>
+      <textarea class="transcript"></textarea></div>` : ""}
     <button type="button" class="submit">Submit check-in</button>`;
   Questions.wire(card, questions);
+  if (messages.length) {
+    redacted(messages).then((result) => {
+      const box = card.querySelector(".transcript");               // (gone once the card was answered)
+      if (!box) return;
+      review = result;
+      box.value = result.text;
+      card.querySelector(".removed").textContent = Object.entries(result.counts).map(([kind, count]) => `${count} ${kind}`).join(", ") || "nothing found";
+    });
+  }
   const early = card.querySelector(".early");
   if (early) {
     early.onclick = async () => {
@@ -431,6 +453,7 @@ function checkinCard(episode, episodes, settings, stored) {
   card.querySelector(".submit").onclick = async () => {
     const { answers, missing } = Questions.read(card, questions);
     if (missing.length) { alert("Please answer all the questions marked *."); return; }
+    if (messages.length && !review) return;       // (its conversation is not on the page yet: a moment later)
     card.dataset.settled = "answered";            // (the storage listener leaves this card alone)
     const transcript = review ? card.querySelector(".transcript").value : null;
     // (too_early: empty when the form had no such box, so every check-in holds the same answers; timing: how
