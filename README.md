@@ -16,7 +16,12 @@ version (one-click install) is in preparation; until then, follow the steps belo
 
 **How it works, in detail:** [`docs/advice-tracker-design.pdf`](docs/advice-tracker-design.pdf).
 
-## What's new in version 0.6.19
+## What's new in version 0.6.21
+
+- **Show captured messages on this tab** closes again when you click it a second time, as the
+  feedback buttons do.
+
+In 0.6.19:
 
 - Reading the sites: the older pages of a site's conversation list are reached also when the list
   is refreshed often (the test build's Test timings).
@@ -327,7 +332,7 @@ Full privacy policy: the link in the study e-mail.
 
 ## For reviewers and developers
 
-- `manifest.json` (Manifest V3, version 0.6.20): permissions `storage`, `unlimitedStorage` (no
+- `manifest.json` (Manifest V3, version 0.6.21): permissions `storage`, `unlimitedStorage` (no
   install warning), `alarms`, `notifications`, and host permissions for the five chat sites (plus
   `localhost` for the mock test page); no remote code.
 - Past and other-device conversations (0.6; past ones opt-in, other devices always read since

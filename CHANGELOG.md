@@ -3,6 +3,11 @@
 What changed in each version of the Advice Tracker extension, newest first: for participants, and in
 the *Data notes* for the study team. How to install and use it: [README.md](README.md).
 
+## 0.6.21
+
+- **Show captured messages on this tab** opens and closes: a second click closes its output again, as
+  the buttons for feedback close their box (before, it could only be opened).
+
 ## 0.6.20
 
 The chat's code with each judgment, for the study team's monitor.

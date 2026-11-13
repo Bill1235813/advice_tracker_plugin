@@ -97,8 +97,13 @@ document.getElementById("pause").onclick = async () => {
 document.getElementById("pause-confirm").onclick = () => setPaused(true);
 document.getElementById("pause-cancel").onclick = () => { pauseBox.hidden = true; };
 document.getElementById("debug").onclick = async () => {
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   const out = document.getElementById("debug-out");
+  // (0.6.21) the same button closes the output again, as the feedback buttons close their box
+  if (!out.hidden) {
+    out.hidden = true;
+    return;
+  }
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   // NOTE: [edge case callout] (0.6.18) Chrome shows a popup at most 600 pixels high, and the buttons fill it:
   // the output, right under its button, is scrolled into view, before and after the tab answers (before, it
   // was at the very bottom, out of sight, so the button seemed to do nothing)
