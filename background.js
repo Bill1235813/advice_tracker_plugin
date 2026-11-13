@@ -2879,9 +2879,10 @@ async function remindPaused() {
   if (!settings.paused) return keepPausedReminder();          // resumed meanwhile: the alarm goes
   const now = Date.now(), hours = (now - (settings.pausedAt || now)) / (DAY_MS / 24);
   const ago = hours < 48 ? `${Math.max(1, Math.round(hours))} hours` : `${Math.round(hours / 24)} days`;
+  // (the test build: a pause never ends a tester's participation, so no reminder says it does; the study's
+  // build says that a pause of more than a week ends it)
   const rule = hours < 24 ? "Your payment is not affected yet: a pause of more than 24 hours reduces this week's payment."
-    : hours < 7 * 24 ? "This week's payment is reduced for the time paused, and a pause of more than a week ends your participation in the study."
-    : "A pause of more than a week ends your participation in the study: the study team will contact you.";
+    : "This week's payment is reduced for the time paused. In this test build a pause never ends your participation.";
   chrome.notifications.create("paused", {
     type: "basic", iconUrl: "icons/icon128.png", title: "Advice Tracker: tracking is still paused",
     message: `You paused tracking ${ago} ago. Nothing is recorded while it is paused. ${rule}`,
