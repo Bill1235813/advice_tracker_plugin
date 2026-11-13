@@ -3,6 +3,15 @@
 What changed in each version of the Advice Tracker extension, newest first: for participants, and in
 the *Data notes* for the study team. How to install and use it: [README.md](README.md).
 
+## 0.6.22
+
+- **Show captured messages on this tab** numbers each user message with its turn, and says when the
+  page shows only part of the conversation ("The page shows turn 3 of 3 now: the site draws only part
+  of a conversation at a time"). A tester saw only the last turn after coming back to a ChatGPT tab,
+  though "3 of your messages captured": ChatGPT had taken the other turns off the page, and the
+  list showed what the page holds. The study server's data showed all three turns judged in order;
+  nothing was missed. (`lib/episodes.js` `firstTurnOnPage` places the page's turns among the chat's.)
+
 ## 0.6.21
 
 - **Show captured messages on this tab** opens and closes: a second click closes its output again, as

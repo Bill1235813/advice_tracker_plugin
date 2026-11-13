@@ -16,7 +16,14 @@ version (one-click install) is in preparation; until then, follow the steps belo
 
 **How it works, in detail:** [`docs/advice-tracker-design.pdf`](docs/advice-tracker-design.pdf).
 
-## What's new in version 0.6.21
+## What's new in version 0.6.22
+
+- **Show captured messages on this tab** numbers each of your messages with its turn in the
+  conversation, and says when the page shows only part of it: a site such as ChatGPT draws only
+  some turns at a time (for example after you come back to its tab), and the others are still
+  counted in "captured".
+
+In 0.6.21:
 
 - **Show captured messages on this tab** closes again when you click it a second time, as the
   feedback buttons do.
@@ -332,7 +339,7 @@ Full privacy policy: the link in the study e-mail.
 
 ## For reviewers and developers
 
-- `manifest.json` (Manifest V3, version 0.6.21): permissions `storage`, `unlimitedStorage` (no
+- `manifest.json` (Manifest V3, version 0.6.22): permissions `storage`, `unlimitedStorage` (no
   install warning), `alarms`, `notifications`, and host permissions for the five chat sites (plus
   `localhost` for the mock test page); no remote code.
 - Past and other-device conversations (0.6; past ones opt-in, other devices always read since
