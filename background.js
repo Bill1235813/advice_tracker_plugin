@@ -572,11 +572,17 @@ async function afterSync(before, chat, page, settings) {
   return chat;
 }
 
+// One judgment for the study server's judge. `chat`: the conversation's state ({key, site}: its key names the chat).
+// NOTE: [design thought] (0.6.20) the request also carries the chat's code (`chat`): a hash of the chat's key, the
+// same one that starts the ids of the chat's episodes (episodeId), so the study team's monitor can show which
+// conversation a judgment belongs to, next to its answers and check-ins. It names no text, and the judge never
+// gets it (relay 0.6.6 keeps it with the judgment's labels; an older relay ignores the field).
 async function submit(job, chat, settings) {
   try {
     const response = await fetch(`${settings.serverUrl}/judge`, {
       method: "POST", headers: { "Content-Type": "application/json", "X-Study-Key": settings.studyKey },
-      body: JSON.stringify({ participant_id: settings.participantId, site: chat.site, ...redactJob(job, settings.redactNames) }),
+      body: JSON.stringify({ participant_id: settings.participantId, site: chat.site, ...redactJob(job, settings.redactNames),
+                             chat: Episodes.hash(chat.key) }),
       signal: AbortSignal.timeout(25000),
     });
     if (!response.ok) return null;          // 503 = queue full
@@ -2093,7 +2099,8 @@ async function settleHistory(key) {
     }
     let job = Episodes.nextJob(judge, userTurns, replies);
     if (job.kind === "continuation" && !job.previous) job = { ...job, ...(await previousFromRecord(judge)) };
-    const id = await submit({ ...job, source: owner }, { site: hist.site }, settings);
+    // (the walk's chat key: the one its episodes' ids start with, episodeId(hist.chat, ...))
+    const id = await submit({ ...job, source: owner }, { site: hist.site, key: hist.chat }, settings);
     if (started !== generation) return;
     if (!id) {
       await store(failedOnce(judge, turn));

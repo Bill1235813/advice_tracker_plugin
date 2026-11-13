@@ -3,6 +3,20 @@
 What changed in each version of the Advice Tracker extension, newest first: for participants, and in
 the *Data notes* for the study team. How to install and use it: [README.md](README.md).
 
+## 0.6.20
+
+The chat's code with each judgment, for the study team's monitor.
+
+- Nothing changes for you. Each request to judge a message also names the conversation it belongs
+  to by a short code (a hash of the chat's key), so the study team can see which judgments belong
+  to which conversation. The code names no text and is not the chat site's own id of the
+  conversation.
+- Data notes: `POST /judge` carries `chat`, `Episodes.hash` of the chat's key: for a chat on the web
+  its key, for a conversation read from the site the walk's key (`hist.chat`); the same code starts
+  the ids of the chat's episodes (`<chat>-<start>-<opening>-<time>`), so judgments, answers,
+  conversations and check-ins of a chat can be matched. Relay 0.6.6 keeps it in `judgments.jsonl`;
+  an older relay ignores the field (pydantic's default).
+
 ## 0.6.19
 
 The reading of the sites, when the list is refreshed often.

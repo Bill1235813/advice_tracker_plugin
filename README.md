@@ -327,7 +327,7 @@ Full privacy policy: the link in the study e-mail.
 
 ## For reviewers and developers
 
-- `manifest.json` (Manifest V3, version 0.6.19): permissions `storage`, `unlimitedStorage` (no
+- `manifest.json` (Manifest V3, version 0.6.20): permissions `storage`, `unlimitedStorage` (no
   install warning), `alarms`, `notifications`, and host permissions for the five chat sites (plus
   `localhost` for the mock test page); no remote code.
 - Past and other-device conversations (0.6; past ones opt-in, other devices always read since
@@ -369,7 +369,9 @@ Full privacy policy: the link in the study e-mail.
   text (transcripts, free-text answers, feedback) are numbered per participant (`[NAME1]`,
   `[EMAIL2]`, `[file: NAME1_cv.pdf]`; `lib/redact.js`, the table is `redactNumbers` in the
   extension's storage); the `redacted` counts are as before, and the texts of `POST /judge` keep
-  the placeholders without numbers. A reinstall, a second computer or "Delete all data" starts
+  the placeholders without numbers. Since 0.6.20 each `POST /judge` also carries `chat`, the chat's
+  code: `Episodes.hash` of the chat's key, the part of its episodes' ids before the first `-` (no
+  text; relay 0.6.6 keeps it with the judgment, an older relay ignores it). A reinstall, a second computer or "Delete all data" starts
   new numbers (after a delete they go on from the last one, so no number is used twice).
   - `episode_rating`: answers + the redacted transcript from the opening turn through the answered one.
   - `episode_transcript`: the complete redacted transcript from the opening turn, when an answered
