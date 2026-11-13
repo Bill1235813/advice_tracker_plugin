@@ -3,6 +3,16 @@
 What changed in each version of the Advice Tracker extension, newest first: for participants, and in
 the *Data notes* for the study team. How to install and use it: [README.md](README.md).
 
+## 0.6.23
+
+- **The clock margin around a pause: 1 minute** (10 before). A message read from the site (another
+  device, a past one) is skipped when its time falls in a pause, or within the margin before or after
+  it, since the site's clock and the computer's can differ a little: messages from 1 minute after
+  you resume are read now. Messages sent while tracking was paused are still never read.
+- Data notes: `lib/history.js` `CLOCK_MARGIN_MS` 1 minute; it also gives the room for the two clocks
+  when a conversation handed from the web page to the walk is checked for a change on the site
+  (`settleHanded`): a smaller room can only mean one more read of that conversation.
+
 ## 0.6.22
 
 - **Show captured messages on this tab** numbers each user message with its turn, and says when the
