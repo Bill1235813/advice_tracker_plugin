@@ -1247,13 +1247,33 @@ async function armFollowup(id) {
   else chrome.alarms.clear(`checkin|${id}`);
 }
 
-// The participant is in the middle of a conversation on this page: an advice episode is open in its chat,
-// or they sent something or the page changed within BUSY_PAGE_MS (the log of sends stays when a chat that
-// is not advice lets go of its copy)
+// The participant is in the middle of a conversation on this page: they sent something there, or the page
+// changed (an answer being written), within BUSY_PAGE_MS (the log of sends stays when a chat that is not
+// advice lets go of its copy)
+// NOTE: [design thought] (0.6.18) an advice episode open in the chat no longer counts by itself: an episode
+// stays open up to a week, and a participant who stayed in its chat never got an invitation or a follow-up
+// there. Its own questions still come first: a page that shows one of the extension's windows refuses
+// another (content/rating_panel.js popup)
 async function busyOn(view, now) {
-  const chat = await load(`chat:${view.key}`), snapshot = await load(`snap:${view.key}`);
+  const snapshot = await load(`snap:${view.key}`);
   const lastSent = ((await load(`sentlog:${view.key}`)) || []).at(-1)?.at ?? 0;
-  return chat?.state === "episode" || now < Math.max(snapshot?.changedAt ?? 0, lastSent) + BUSY_PAGE_MS;
+  return now < Math.max(snapshot?.changedAt ?? 0, lastSent) + BUSY_PAGE_MS;
+}
+
+// A page of a chat site that stays in front gets what a page coming to the front gets (onView): its site's
+// next question about a conversation read from the site, else a follow-up question. Every minute (alarm
+// hread), with the same pacing (INVITE_GAP_MS per site, FOLLOWUP_GAP_MS) and only once the participant has
+// not typed there for BUSY_PAGE_MS (busyOn).
+// NOTE: [design thought] (0.6.18) before, these came only when a page came to the front: a participant who
+// stayed in one chat never got the question about a conversation from their phone (testers had to click on
+// that conversation to see it)
+async function offerOnFront() {
+  const view = await load("lastView");
+  if (!view) return;
+  const tab = await chrome.tabs.get(view.tabId).catch(() => null);
+  // (the tab the participant looked at last, still the one in front in its window, still on that site)
+  if (!tab?.active || !tab.url || hostOf(tab.url) !== hostOf(view.url)) return;
+  if (!(await offerQueued(view))) await offerFollowup(view);
 }
 
 // A follow-up question on the page the participant just opened (`view`): about the oldest conversation
@@ -1437,10 +1457,18 @@ async function onReminder(id) {
 async function onUpdateAnswer(message) {
   const record = await load(`episode:${message.id}`);
   await count(`update_${message.answer}`);
-  if (record) {
-    await upload("prompt", { episode: record.id, source: record.source ?? "web", mode: record.mode, prompt: "update", answer: message.answer,
-                             turns: record.end - record.start + 1 }, await getSettings());
+  // (0.6.18) No: the answers still hold for the conversation as the pop-up (or the Quick check-ins page) asked about
+  // it, through turn `end`: the update is not listed any more (lib/modes.js updateMissed), until new input comes and
+  // the next update is offered
+  if (record && message.answer === "no") {
+    await updateEpisode(message.id, (current) => ({ ...current, updateDeclinedEnd: Math.max(current.updateDeclinedEnd ?? 0, pageEnd(current, message)) }));
   }
+  if (record) {
+    // (where: the pop-up on a chat page, or the card on the Quick check-ins page, 0.6.18)
+    await upload("prompt", { episode: record.id, source: record.source ?? "web", mode: record.mode, prompt: "update", answer: message.answer,
+                             where: message.where ?? "popup", turns: record.end - record.start + 1 }, await getSettings());
+  }
+  await updateBadge();
 }
 
 // The confirm pop-up's outcome (combined mode): yes, no, no answer in time, superseded (a
@@ -1459,15 +1487,16 @@ async function onConfirmAnswer(message, tabId) {
   else await offerRefused(tabId);
 }
 
-// The extension icon shows how many questions wait: ratings pages (lib/modes.js `waiting`) and
-// follow-up questions (did you decide, did you act, the outcome questions).
+// The extension icon shows how many questions wait: ratings pages (lib/modes.js `waiting`), updates the
+// participant was offered and did not give (`updateMissed`, 0.6.18) and follow-up questions (did you
+// decide, did you act, the outcome questions).
 async function updateBadge() {
   const now = Date.now(), end = await studyEnd();
   const settings = await getSettings();
   // (a queued question whose kind is off, or whose site is excluded, cannot be asked: it does not count)
   const askable = (record) => !Modes.viaQueue(record) || (kindOn(settings, record) && !excluded(settings, record.url));
   // (and the messages from the study team that are not read yet, 0.6.15)
-  const waiting = (await loadAll("episode:")).filter(([, record]) => (Modes.waiting(record) && askable(record)) ||
+  const waiting = (await loadAll("episode:")).filter(([, record]) => (Modes.waiting(record) && askable(record)) || Modes.updateMissed(record) ||
                                                                       Modes.followupAsks(Modes.followupStage(record, now, end))).length +
                   ((await load("teamMessages")) || []).filter((message) => !message.readAt).length;
   await chrome.action.setBadgeText({ text: waiting ? String(waiting) : "" });
@@ -1591,13 +1620,20 @@ async function historyTick() {
     await checkJoined(settings);
     await checkPastAnnotated(settings);
   }
-  const busy = (await waitingTexts()).length > 0;
-  if (busy) kickHistory();
+  if ((await waitingTexts()).length > 0) kickHistory();
   const config = (await load("hconfig")) || {};
+  // NOTE: [design thought] (0.6.18) one request a minute to each site at most (before, one in all): the site
+  // first in the list took every minute it had something to do (its list, then each of its chats that
+  // changed), and a conversation from the phone on another site waited. A conversation is still read only
+  // while none waits to be judged, so the site that read one longest ago goes first (readAt).
+  const sites = [];
   for (const host of HISTORY_SITES) {
-    if (!historyAllowed(settings, host) || config.history?.[host] === false) continue;
+    if (historyAllowed(settings, host) && config.history?.[host] !== false) sites.push({ host, readAt: ((await load(`hstate:${host}`)) || {}).readAt ?? 0 });
+  }
+  sites.sort((a, b) => a.readAt - b.readAt);
+  for (const { host } of sites) {
     const state = (await load(`hstate:${host}`)) || {};
-    if (await historyStep(host, settings, state, busy)) return;
+    await historyStep(host, settings, state, (await waitingTexts()).length > 0);
   }
 }
 
@@ -1614,17 +1650,20 @@ async function historyStep(host, settings, state, busy) {
   let request = null;
   // (a read carries the list's time of the conversation: what the walk compares with next time)
   const listedU = (id) => list.items.find((item) => item.id === id)?.u ?? null;
+  const next = busy ? null : await nextToRead(host, list, windows, settings);
+  // NOTE: [design thought] (0.6.18) right after a request for the list, a conversation that waits to be read
+  // goes first: with a short time between refreshes of the list (a test) the list took every minute
+  const readFirst = Boolean(next) && state.lastWhat === "list";
+  const since = settings.readPast ? windows.pastFrom : windows.appFrom;
   if (state.priority) request = { what: "read", id: state.priority, listedU: listedU(state.priority), reason: "asked" };
-  else if (now - list.listedAt >= LIST_EVERY_MS) request = { what: "list", cursor: null, refresh: true };
-  else if (list.refresh !== null && list.refresh !== undefined) request = { what: "list", cursor: list.refresh, refresh: true };
-  else if (!busy) {
-    const next = await nextToRead(host, list, windows, settings);
-    const since = settings.readPast ? windows.pastFrom : windows.appFrom;
-    if (next) request = { what: "read", id: next.id, listedU: listedU(next.id), reason: next.reason };
-    else if (!list.end && (list.reached ?? Infinity) > since) request = { what: "list", cursor: list.cursor };
-  }
+  else if (!readFirst && now - list.listedAt >= LIST_EVERY_MS) request = { what: "list", cursor: null, refresh: true };
+  else if (!readFirst && list.refresh !== null && list.refresh !== undefined) request = { what: "list", cursor: list.refresh, refresh: true };
+  else if (next) request = { what: "read", id: next.id, listedU: listedU(next.id), reason: next.reason };
+  else if (!busy && !list.end && (list.reached ?? Infinity) > since) request = { what: "list", cursor: list.cursor };
   if (!request) return false;
-  await save(`hstate:${host}`, { ...state, priority: request.reason === "asked" ? null : state.priority ?? null });
+  // (lastWhat: the kind of this request, readAt: when this site last read a conversation; both for the order above)
+  await save(`hstate:${host}`, { ...state, priority: request.reason === "asked" ? null : state.priority ?? null, lastWhat: request.what,
+                                 readAt: request.what === "read" ? now : state.readAt ?? 0 });
   const epoch = await epochNow();
   let reply = null;
   for (const tab of tabs) {
@@ -3463,7 +3502,7 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   const [kind, name] = alarm.name.split("|");      // e.g. "quiet|chatgpt.com/<id>", "pause|<episode>", "flush"
   if (kind === "judge" || kind === "quiet") advance(name);
   else if (kind === "hjudge") kickHistory(name || null);
-  else if (kind === "hread") { await historyTick(); await settleHanded(); }
+  else if (kind === "hread") { await historyTick(); await settleHanded(); await offerOnFront(); }
   else if (kind === "heldcut") await settleHanded();
   else if (kind === "pause") await onPause(name);
   else if (kind === "ask") await askDue(name);         // the reply did not settle yet

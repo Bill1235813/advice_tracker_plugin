@@ -94,11 +94,14 @@ async function main() {
     }
     if (OUTCOMES) continue;
     // waiting for answers (lib/modes.js: an ended episode never answered, final answers still
-    // due, an open episode the participant was asked about), or the one this tab was opened for,
-    // unless its answers are up to date (nothing new since: lib/modes.js stillDue)
+    // due, an open episode the participant was asked about), an update offered and not given (0.6.18:
+    // updateMissed, e.g. its pop-up closed by itself), or the one this tab was opened for, unless its
+    // answers are up to date (nothing new since: lib/modes.js stillDue)
     const requested = params.get("rate") === episode.id && ["open", "pending", "rated"].includes(episode.status) &&
                       Modes.stillDue(episode);
-    if (Modes.waiting(episode) || requested) list.appendChild(ratingCard(episode, requested ? params.get("stage") : null, settings));
+    if (Modes.waiting(episode) || Modes.updateMissed(episode) || requested) {
+      list.appendChild(ratingCard(episode, requested ? params.get("stage") : null, settings));
+    }
   }
   if (!list.children.length) {
     list.innerHTML = OUTCOMES ? '<p class="empty">No follow-up is open right now. A week after you ask an AI assistant for advice, its follow-up appears here.</p>'
@@ -164,6 +167,8 @@ function ratingCard(episode, asked, settings) {
   // the question the chat page asked, else the one that waits (the background corrects a stage
   // that no longer fits, e.g. an episode that ended meanwhile)
   const stage = STAGES.includes(asked) ? asked : Modes.pageDue(episode)?.stage || (answered ? "update" : "first");
+  // (0.6.18) an update can also be declined here, as in the chat page's pop-up: "No changes" keeps the answers
+  const update = answered && stage === "update";
   card.innerHTML = `<h2>${Questions.escape(episode.site)} · ${new Date(episode.closedAt || episode.openedAt).toLocaleString()}</h2>
     <p class="meta">It looked like you asked the AI for advice here:</p>${quote(episode.openingText)}
     <div class="confirm" ${confirmed ? "hidden" : ""}><b>Did you ask for advice here?</b> <a class="whatis" href="#advice">what counts as advice?</a><br>
@@ -172,7 +177,8 @@ function ratingCard(episode, asked, settings) {
     <div class="form" ${confirmed ? "" : "hidden"}>
       ${Questions.render(questions)}
       <p class="meta">${Questions.escape(Questions.CONVERSATION_NOTES[episode.text])}</p>
-      <button type="button" class="submit">Submit</button></div>`;
+      <button type="button" class="submit">Submit</button>
+      ${update ? '<button type="button" class="secondary unchanged">No changes: keep my answers</button>' : ""}</div>`;
   Questions.fill(card, questions, episode.answers);
   Questions.wire(card, questions);
   card.querySelector(".yes").onclick = () => { card.querySelector(".confirm").hidden = true; card.querySelector(".form").hidden = false; };
@@ -190,6 +196,15 @@ function ratingCard(episode, asked, settings) {
                                        timing: Questions.timing(card), stage, start: episode.start, end: episode.end, basedOn: episode.versions });
     card.innerHTML = `<p class="done">Thank you.${followupNote(episode, settings)}</p>`;
   };
+  // (the same answer as No in the chat page's update pop-up, from this page: background.js onUpdateAnswer)
+  const unchanged = card.querySelector(".unchanged");
+  if (unchanged) {
+    unchanged.onclick = async () => {
+      answeredHere.add(episode.id);
+      await chrome.runtime.sendMessage({ type: "update_answer", id: episode.id, answer: "no", start: episode.start, end: episode.end, where: "page" });
+      card.innerHTML = '<p class="done">Thank you: your answers stay as they are.</p>';
+    };
+  }
   return card;
 }
 
@@ -599,6 +614,11 @@ chrome.storage.onChanged.addListener((changes, area) => {
         card.innerHTML = episode?.status === "done" && episode.checkin?.doneAt
           ? '<p class="done">Your check-in completed this conversation: no more answers are needed here.</p>'
           : '<p class="done">This question is no longer open.</p>';
+      } else if (kind === "rate" && episode.updateDeclinedEnd !== change.oldValue?.updateDeclinedEnd && !Modes.waiting(episode) &&
+                 !Modes.updateMissed(episode)) {
+        // (0.6.18: an update declined elsewhere, "No" in the chat page's pop-up)
+        card.dataset.settled = "elsewhere";
+        card.innerHTML = '<p class="done">Your answers stay as they are: nothing more to do here.</p>';
       } else if (episode.versions !== Number(card.dataset.versions)) {
         if (!Modes.stillDue(episode)) {
           card.dataset.settled = "elsewhere";

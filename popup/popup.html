@@ -41,6 +41,8 @@
   <button id="pause-cancel">Cancel</button>
 </div>
 <button id="debug">Show captured messages on this tab</button>
+<!-- (0.6.18) right under its button: the popup is at most 600 pixels high, and at the bottom the output was out of sight -->
+<pre id="debug-out" hidden></pre>
 <button id="feedback">Send feedback on the study</button>
 <button id="missed">Report an advice conversation we missed</button>
 <div id="feedback-box" hidden>
@@ -53,7 +55,6 @@
 <button id="rules">Study rules: payments and participation</button>
 <button id="messages">Messages from the study team</button>
 <button id="options">Settings</button>
-<pre id="debug-out" hidden></pre>
 <script src="../config.js"></script>
 <script src="../lib/sites.js"></script>
 <script src="../lib/modes.js"></script>

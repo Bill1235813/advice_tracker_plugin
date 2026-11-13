@@ -220,7 +220,7 @@ Full privacy policy: the link in the study e-mail.
   wait for an answer are listed under the extension icon → **Quick check-ins** and **Outcomes**.
 - **Chrome removed the extension** after an update: repeat "Load unpacked" from the same folder.
 - **No past or other-device conversations are found**: they are read only while a page of the site
-  is open, a little at a time (one request a minute), and only for the account you were signed in
+  is open, a little at a time (one request a minute to each site), and only for the account you were signed in
   with the first time the extension read the site. If a site stops answering (it may ask the
   extension to wait, or refuse), reading that site pauses by itself; the study team sees this in the
   heartbeat.
