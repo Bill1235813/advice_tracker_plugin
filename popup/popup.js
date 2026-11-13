@@ -9,7 +9,8 @@ async function refresh() {
   // site not excluded (it cannot be asked else)
   const kindOn = (e) => e.source !== "past" || Boolean(settings.readPast);
   const askable = (e) => !Modes.viaQueue(e) || (Boolean(kindOn(e)) && !isExcluded(new URL(e.url).hostname, settings.excludedHosts || []));
-  document.getElementById("n-pending").textContent = episodes.filter((e) => Modes.waiting(e) && askable(e)).length;
+  // (and the updates the participant was offered and did not give, 0.6.18: lib/modes.js updateMissed)
+  document.getElementById("n-pending").textContent = episodes.filter((e) => (Modes.waiting(e) && askable(e)) || Modes.updateMissed(e)).length;
   // follow-ups that have begun and are not finished, as the outcomes page lists them and its reminder counts them
   // (did you decide, did you act, the outcome questions, or a wait for one of these: lib/modes.js followupOpen)
   const end = Modes.studyEnd(stored, STUDY_CONFIG.studyDays);
@@ -98,7 +99,12 @@ document.getElementById("pause-cancel").onclick = () => { pauseBox.hidden = true
 document.getElementById("debug").onclick = async () => {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   const out = document.getElementById("debug-out");
+  // NOTE: [edge case callout] (0.6.18) Chrome shows a popup at most 600 pixels high, and the buttons fill it:
+  // the output, right under its button, is scrolled into view, before and after the tab answers (before, it
+  // was at the very bottom, out of sight, so the button seemed to do nothing)
   out.hidden = false;
+  out.textContent = "Reading this tab...";
+  out.scrollIntoView({ block: "nearest" });
   try {
     const result = await chrome.tabs.sendMessage(tab.id, { type: "debug_capture" });
     // the count the background keeps for the chat (it stays when the page moves to another chat
@@ -113,6 +119,7 @@ document.getElementById("debug").onclick = async () => {
   } catch (error) {
     out.textContent = "This tab is not a supported chat site (or the page has not finished loading).";
   }
+  out.scrollIntoView({ block: "nearest" });
 };
 
 // Feedback on the study (0.6.12), in the participant's own words: the background redacts it, as every text, and

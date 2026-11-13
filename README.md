@@ -16,7 +16,18 @@ version (one-click install) is in preparation; until then, follow the steps belo
 
 **How it works, in detail:** [`docs/advice-tracker-design.pdf`](docs/advice-tracker-design.pdf).
 
-## What's new in version 0.6.17
+## What's new in version 0.6.18
+
+- **Questions about a conversation from your phone (or another device) come by themselves**, on a
+  page of that site that you have open, once you have not typed there for 5 minutes. You no longer
+  need to open that conversation for them to appear. The follow-up questions come the same way.
+- **An update you missed** ("Update your ratings?" closed before you answered it) is now listed on
+  the Quick check-ins page, with your earlier answers filled in and a **No changes** button, until
+  you update your answers or say that nothing changed.
+- **Show captured messages on this tab** shows what it found right under the button (it was out of
+  sight at the bottom of the menu).
+
+In 0.6.17:
 
 - **Past conversations: up to 20.** You can annotate up to 20 past conversations ($2 each, so up
   to $40); before, the limit was 30.
@@ -292,7 +303,7 @@ Full privacy policy: the link in the study e-mail.
   wait for an answer are listed under the extension icon → **Quick check-ins** and **Outcomes**.
 - **Chrome removed the extension** after an update: repeat "Load unpacked" from the same folder.
 - **No past or other-device conversations are found**: they are read only while a page of the site
-  is open, a little at a time (one request a minute), and only for the account you were signed in
+  is open, a little at a time (one request a minute to each site), and only for the account you were signed in
   with the first time the extension read the site. If a site stops answering (it may ask the
   extension to wait, or refuse), reading that site pauses by itself; the study team sees this in the
   heartbeat.
@@ -311,7 +322,7 @@ Full privacy policy: the link in the study e-mail.
 
 ## For reviewers and developers
 
-- `manifest.json` (Manifest V3, version 0.6.17): permissions `storage`, `unlimitedStorage` (no
+- `manifest.json` (Manifest V3, version 0.6.18): permissions `storage`, `unlimitedStorage` (no
   install warning), `alarms`, `notifications`, and host permissions for the five chat sites (plus
   `localhost` for the mock test page); no remote code.
 - Past and other-device conversations (0.6; past ones opt-in, other devices always read since
@@ -386,7 +397,10 @@ Full privacy policy: the link in the study e-mail.
     `null` and `transcript_reviewed` holds the text as they left it: the unedited one is not
     sent), `past_skipped`, and `consent` (`feature`, `accepted`, `version`).
   - `prompt`: a question shown (kinds include `invite` and `card`); it can end `withdrawn` (the pop-up
-    or invitation was taken away because the participant answered the same question elsewhere).
+    or invitation was taken away because the participant answered the same question elsewhere). Since
+    0.6.18 an `update` prompt also says `where` it was answered: `popup` (the chat page's pop-up) or
+    `page` (**No changes** on the Quick check-ins page, which lists an update offered and not given:
+    `lib/modes.js` `updateMissed`).
   - `heartbeat` (twice a day) and `status` (on a change): `tracking`, `paused`, `paused_at`,
     `listening_sites`, `excluded_sites`, `sites_without_access`, `read_past`, `read_apps`; the
     heartbeat also the extension's `version`, `history` (per site: ok, not_yet, waiting, signed_out,

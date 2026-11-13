@@ -3,6 +3,38 @@
 What changed in each version of the Advice Tracker extension, newest first: for participants, and in
 the *Data notes* for the study team. How to install and use it: [README.md](README.md).
 
+## 0.6.18
+
+Three fixes from the team's tests on ChatGPT and Claude.
+
+- **Questions about a conversation from your phone (or another device) come by themselves.** Once
+  the extension found one, its small window waited for a page of that site to come to the front,
+  and never came to a chat with an advice conversation open in it: a tester who stayed in one chat
+  had to click on the phone conversation to see its questions. Now a page of the site that stays in
+  front gets it too (checked every minute), once you have not typed there for 5 minutes; an advice
+  conversation open in that chat no longer holds it back. The follow-up questions come the same
+  way. As before, a page shows one of the extension's windows at a time, and a conversation from
+  another device can be asked about only from 5 minutes after its last message (until then it may
+  still prove to be one sent on the web).
+- **Reading the sites: one request a minute to each site** (before: one a minute for all sites), and
+  the site that read a conversation longest ago goes first. Before, the first site in the list took
+  every minute it had something to do (its list, then each of its chats that changed), so a phone
+  conversation on another site could wait a long time. In the test build, a list refreshed every
+  minute (Test timings) leaves every other minute to reading the conversations.
+- **An update you missed is listed on the Quick check-ins page.** When "Update your ratings?" closed
+  by itself (or you opened the update and left it), the update is listed there, with your earlier
+  answers filled in and a **No changes: keep my answers** button, until you update or say No. The
+  number on the icon counts it. Updating stays optional: it is never one of the week's due tasks.
+- **Show captured messages on this tab** shows its output right under the button and scrolls to it.
+  The output was at the very bottom of the menu, below what Chrome shows (a menu is at most 600
+  pixels high), so the button seemed to do nothing.
+- Data notes: a `prompt` event of an update (`prompt: "update"`) carries `where`: `popup` (the chat
+  page's pop-up) or `page` (the Quick check-ins page's No changes, `answer: "no"`). An episode record
+  keeps `updateDeclinedEnd` (its last turn when the participant last said No to an update); `hstate`
+  per site keeps `lastWhat` and `readAt`. Past conversations are still read only when the
+  participant shares them (turns before joining), other devices always (turns after joining), as
+  since 0.6.11.
+
 ## 0.6.17
 
 Past conversations: up to 20 for each participant (30 before).
