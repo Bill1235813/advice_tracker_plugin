@@ -117,10 +117,25 @@ document.getElementById("debug").onclick = async () => {
     const stored = await chrome.storage.local.get(null);
     const chatKey = stored[`alias:${result.key}`] || result.key;
     const captured = Math.max((stored[`sent:${chatKey}`] || []).length, result.sent);
+    // (0.6.22) each message the page shows with its turn in the conversation, and a note when the page shows only
+    // part of it: a site such as ChatGPT draws only some turns at a time (after its tab comes back to the front,
+    // or in a long chat), and the page's list holds only those; the extension keeps track of every turn
+    const known = stored[`chat:${chatKey}`]?.ids || [];
+    const { userTurns } = Episodes.splitTurns(result.messages);
+    const first = Episodes.firstTurnOnPage(known, Episodes.turnIds(userTurns));
+    const total = first === null ? known.length : Math.max(known.length, first - 1 + userTurns.length);
+    const last = first === null ? null : first - 1 + userTurns.length;
+    const part = first !== null && (first > 1 || last < total)
+      ? `The page shows ${first === last ? `turn ${first}` : `turns ${first} to ${last}`} of ${total} now: the site draws only part ` +
+        "of a conversation at a time (scroll up or down to see the others).\n" : "";
+    let turn = first === null ? null : first - 1;
+    const lines = result.messages.map((m) => {
+      if (m.role === "user" && turn !== null) turn += 1;
+      return `${m.role === "user" && turn !== null ? `turn ${turn} · ` : ""}${m.role}: ${m.content.slice(0, 160)}`;
+    });
     out.textContent = `${result.site} · ${result.key}${result.aliasOf ? ` (was ${result.aliasOf})` : ""} · ` +
-      `${captured} of your messages captured in this conversation\n` +
-      (result.messages.length ? result.messages.map((m) => `${m.role}: ${m.content.slice(0, 160)}`).join("\n")
-                              : "No messages found on this page.");
+      `${captured} of your messages captured in this conversation\n` + part +
+      (lines.length ? lines.join("\n") : "No messages found on this page.");
   } catch (error) {
     out.textContent = "This tab is not a supported chat site (or the page has not finished loading).";
   }
