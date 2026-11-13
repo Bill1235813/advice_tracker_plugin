@@ -1647,19 +1647,22 @@ async function historyStep(host, settings, state, busy) {
   // (a read carries the list's time of the conversation: what the walk compares with next time)
   const listedU = (id) => list.items.find((item) => item.id === id)?.u ?? null;
   const next = busy ? null : await nextToRead(host, list, windows, settings);
-  // NOTE: [design thought] (0.6.18) right after a request for the list, a conversation that waits to be read
-  // goes first: with a short time between refreshes of the list (a test) the list took every minute
-  const readFirst = Boolean(next) && state.lastWhat === "list";
   const since = settings.readPast ? windows.pastFrom : windows.appFrom;
+  const olderDue = !busy && !list.end && (list.reached ?? Infinity) > since;
+  // NOTE: [design thought] (0.6.18, 0.6.19) right after a refresh of the list, what else waits goes first: a
+  // conversation to read, or an older page of the list. With a short time between refreshes (a test) the
+  // refresh came every minute, between reads, and the pages after the first were never reached
+  const otherFirst = state.lastWhat === "refresh" && (Boolean(next) || olderDue);
   if (state.priority) request = { what: "read", id: state.priority, listedU: listedU(state.priority), reason: "asked" };
-  else if (!readFirst && now - list.listedAt >= LIST_EVERY_MS) request = { what: "list", cursor: null, refresh: true };
-  else if (!readFirst && list.refresh !== null && list.refresh !== undefined) request = { what: "list", cursor: list.refresh, refresh: true };
+  else if (!otherFirst && now - list.listedAt >= LIST_EVERY_MS) request = { what: "list", cursor: null, refresh: true };
+  else if (!otherFirst && list.refresh !== null && list.refresh !== undefined) request = { what: "list", cursor: list.refresh, refresh: true };
   else if (next) request = { what: "read", id: next.id, listedU: listedU(next.id), reason: next.reason };
-  else if (!busy && !list.end && (list.reached ?? Infinity) > since) request = { what: "list", cursor: list.cursor };
+  else if (olderDue) request = { what: "list", cursor: list.cursor };
   if (!request) return false;
-  // (lastWhat: the kind of this request, readAt: when this site last read a conversation; both for the order above)
-  await save(`hstate:${host}`, { ...state, priority: request.reason === "asked" ? null : state.priority ?? null, lastWhat: request.what,
-                                 readAt: request.what === "read" ? now : state.readAt ?? 0 });
+  // (lastWhat: "refresh", "list" (an older page) or "read"; readAt: when this site last read a conversation; both
+  // for the order above and in historyTick)
+  await save(`hstate:${host}`, { ...state, priority: request.reason === "asked" ? null : state.priority ?? null,
+                                 lastWhat: request.refresh ? "refresh" : request.what, readAt: request.what === "read" ? now : state.readAt ?? 0 });
   const epoch = await epochNow();
   let reply = null;
   for (const tab of tabs) {
