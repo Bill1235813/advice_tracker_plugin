@@ -16,7 +16,12 @@ version (one-click install) is in preparation; until then, follow the steps belo
 
 **How it works, in detail:** [`docs/advice-tracker-design.pdf`](docs/advice-tracker-design.pdf).
 
-## What's new in version 0.6.16
+## What's new in version 0.6.17
+
+- **Past conversations: up to 20.** You can annotate up to 20 past conversations ($2 each, so up
+  to $40); before, the limit was 30.
+
+In 0.6.16:
 
 - **Your conversation on the Outcomes page.** With the outcome questions of an advice conversation,
   and with the questions about a past conversation, the Outcomes page now shows you the
@@ -306,7 +311,7 @@ Full privacy policy: the link in the study e-mail.
 
 ## For reviewers and developers
 
-- `manifest.json` (Manifest V3, version 0.6.16): permissions `storage`, `unlimitedStorage` (no
+- `manifest.json` (Manifest V3, version 0.6.17): permissions `storage`, `unlimitedStorage` (no
   install warning), `alarms`, `notifications`, and host permissions for the five chat sites (plus
   `localhost` for the mock test page); no remote code.
 - Past and other-device conversations (0.6; past ones opt-in, other devices always read since

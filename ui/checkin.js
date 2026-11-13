@@ -272,7 +272,7 @@ function itemCard(episode, settings, now) {
       answeredHere.add(episode.id);
       const reply = await chrome.runtime.sendMessage({ type: "past_submitted", id: episode.id, answers: { ...answers, answeredAt: Date.now() },
                                                        timing: Questions.timing(card), ...(review ? reviewed(card, review) : {}) });
-      // (not taken: it went meanwhile, annotated already here or on another computer, or the limit of 30 was reached)
+      // (not taken: it went meanwhile, annotated already here or on another computer, or the limit of past conversations was reached: config.js pastLimit)
       done(reply?.taken === false ? "This past conversation is no longer open: it was annotated already, or the limit of past conversations was reached. Your answers were not sent."
                                   : "Thank you. Your answers and this conversation were sent.");
     } else {

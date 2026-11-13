@@ -3,6 +3,22 @@
 What changed in each version of the Advice Tracker extension, newest first: for participants, and in
 the *Data notes* for the study team. How to install and use it: [README.md](README.md).
 
+## 0.6.17
+
+Past conversations: up to 20 for each participant (30 before).
+
+- **Up to 20 past conversations** can be annotated ($2 each, so up to $40). The settings page, the
+  study rules, a past conversation's card and its invitation say 20.
+- If more than 20 were found for you before this update: the ones you already answered stay as
+  they are, and of the ones still waiting, those found last are taken off your Outcomes page until
+  20 are left in all (answered and waiting together). This happens by itself, within about an
+  hour of the update.
+- Data notes: `config.js` `pastLimit` 30 -> 20, nothing else in the code. The limit is counted by
+  participant ID over all installs (the study server's `GET /past`), as before; a waiting past
+  conversation taken off for the limit is counted in the heartbeat's `past_over_limit`, and no
+  event names it. A participant who annotated more than 20 before the update keeps them all on the
+  server: whether those beyond 20 are paid is the study team's decision.
+
 ## 0.6.16
 
 Your conversation on the Outcomes page, for you to review, as the consent form describes it.
