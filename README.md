@@ -16,7 +16,12 @@ version (one-click install) is in preparation; until then, follow the steps belo
 
 **How it works, in detail:** [`docs/advice-tracker-design.pdf`](docs/advice-tracker-design.pdf).
 
-## What's new in version 0.6.18
+## What's new in version 0.6.19
+
+- Reading the sites: the older pages of a site's conversation list are reached also when the list
+  is refreshed often (the test build's Test timings).
+
+In 0.6.18:
 
 - **Questions about a conversation from your phone (or another device) come by themselves**, on a
   page of that site that you have open, once you have not typed there for 5 minutes. You no longer
@@ -322,7 +327,7 @@ Full privacy policy: the link in the study e-mail.
 
 ## For reviewers and developers
 
-- `manifest.json` (Manifest V3, version 0.6.18): permissions `storage`, `unlimitedStorage` (no
+- `manifest.json` (Manifest V3, version 0.6.19): permissions `storage`, `unlimitedStorage` (no
   install warning), `alarms`, `notifications`, and host permissions for the five chat sites (plus
   `localhost` for the mock test page); no remote code.
 - Past and other-device conversations (0.6; past ones opt-in, other devices always read since

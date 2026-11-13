@@ -3,6 +3,18 @@
 What changed in each version of the Advice Tracker extension, newest first: for participants, and in
 the *Data notes* for the study team. How to install and use it: [README.md](README.md).
 
+## 0.6.19
+
+The reading of the sites, when the list is refreshed often.
+
+- Right after a refresh of a site's conversation list, what else waits goes first: a conversation
+  to read, or an older page of the list. With a list refreshed every minute (the test build's Test
+  timings) the refresh came every other minute and the pages after the first were never reached, so
+  past conversations and changed chats beyond the first page (about 28 chats on ChatGPT) were never
+  read. With the study's 20 minutes between refreshes nothing changes, except that a conversation
+  waiting to be read now goes before the further pages of a refresh.
+- Data notes: `hstate` per site keeps `lastWhat` `refresh`, `list` (an older page) or `read`.
+
 ## 0.6.18
 
 Three fixes from the team's tests on ChatGPT and Claude.
