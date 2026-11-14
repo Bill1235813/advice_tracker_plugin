@@ -10,6 +10,11 @@ the *Data notes* for the study team. How to install and use it: [README.md](READ
   part of the message, so no message sent on the page matched its copy read from the site, and every
   Grok chat was found a second time as a conversation from another device, and asked about again.
   Your messages are now taken without that line.
+- **Perplexity: a conversation on perplexity.ai is no longer asked about again as one from another
+  device**, and reloading it or opening it again no longer makes it a new conversation. Perplexity
+  shows a conversation at perplexity.ai/session/… since about November 8, 2026 (older addresses
+  lead there); the extension did not read that address, so it never linked the conversation on the
+  page to the same one read from the site, and each load of the page started a new one.
 - **Turning past conversations on or off** no longer reads again the conversations begun after you
   joined (on the web or another device): they hold no past message, and one answered No could come
   back as a new question from a later message.
@@ -23,6 +28,16 @@ the *Data notes* for the study team. How to install and use it: [README.md](READ
     texts, annotations) ended with its time ("1:07 PM") up to 0.6.23; copies read from the site
     never did. `lib/sites.js` `userTail` (used by `content/capture.js`) strips a last line that is a
     time alone; a message that is a time alone keeps it.
+  - Perplexity, from about Nov 8 up to 0.6.23: a web chat kept its temporary key on the page (its
+    chat code is that key's), and each load of a /session/ page started another (several codes for
+    one conversation; no `view` events there); read from the site under the thread's id, it was
+    judged again as `app` under yet another code. So these repeats match by message text and time,
+    not by code (relay data of Nov 13: TEST-BZ-2 web 5f870db9 = app c99d5d48; TEST-evelyn web
+    6bb1513b and 97d27ff6 = app 169dec63, web a70968f9 = app 7db49387). `lib/sites.js` now reads
+    /session/<id> and /search/<id>, and turns an address with title words (<words>-<22 letters>)
+    into the thread's uuid (`perplexityThreadId`, as `lib/history/perplexity.js` chatKeyOf), so the
+    page, the background's lookups by address (readFirst, settleHanded, readingStalled) and the
+    reading of the site name a thread alike.
   - `historySwitched` keeps the reading state (`hist:`) of a conversation created at or after the
     past boundary (the earlier of `pastBefore` and `joinedAt`) with no turn before it; the others,
     and one with no known creation time, are read again from scratch, as before. The list (`hlist:`)

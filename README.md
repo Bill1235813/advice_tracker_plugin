@@ -21,6 +21,9 @@ version (one-click install) is in preparation; until then, follow the steps belo
 - **Grok**: a conversation you have on grok.com is no longer asked about a second time as one from
   another device. (Grok now shows the time under each message you send, and the extension took it
   for part of your message.)
+- **Perplexity**: the same for perplexity.ai, and a Perplexity conversation you reload or open
+  again is no longer counted as a new conversation. (Perplexity moved its conversations to a new
+  kind of address, perplexity.ai/session/…, which the extension did not read.)
 - Turning past conversations on or off no longer asks again about conversations you had since
   you joined: one you answered **No** to could come back as a new question.
 - The Outcomes page's past conversations box counts only past conversations (from before you
