@@ -175,9 +175,10 @@ when, and the rules (they are the consent form's). In short:
   computer, which never leaves it and holds a fingerprint of each detail, not the detail itself;
   "Delete all data" empties it. (The messages checked by the study's AI model have labels without
   numbers, as before.)
-- Twice a day the extension sends a heartbeat with counts (found / rated / not advice), whether
-  tracking is on (paused or not, and on which of the five sites it can capture), and when you last
-  sent a message to one of the five AI assistants (the time only, never the text). A change of what
+- Twice a day, and right after it is updated, the extension sends a heartbeat with counts (found /
+  rated / not advice), whether tracking is on (paused or not, and on which of the five sites it can
+  capture), and when you last sent a message to one of the five AI assistants (the time only, never
+  the text). A change of what
   is tracked is reported when it happens, and removing the extension is reported too. The study team
   uses this to know that the extension is still installed and when it was tracking (see *Study
   rules* for what a pause means for payment).
