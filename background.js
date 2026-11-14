@@ -278,8 +278,8 @@ async function onView(message, sender) {
     if (record.status === "open" && record.chatKey !== view.key && !ownText(record)) await ask(record.id, "onOtherConversation", view);
   }
   // a page of the site came to the front: its next question about a conversation read from the site, else
-  // a follow-up question (0.6.9)
-  if (!(await offerQueued(view))) await offerFollowup(view);
+  // a follow-up question (0.6.9), else the reminder of the Outcomes page (0.6.25)
+  if (!(await offerQueued(view)) && !(await offerFollowup(view))) await offerOutcomesReminder(view);
 }
 
 // The participant typed in a chat: for an open periodical or combined episode, the start of a new
@@ -1042,6 +1042,7 @@ async function onPanelShown(message, sender) {
 // it leaves askedEnd alone: the first ratings page still comes (lib/modes.js).
 async function onOfferSeen(message) {
   if (message.asked === "offer_invite") { await count("asked_offer_invite_seen"); return; }      // an invitation asks nothing yet
+  if (message.asked === "offer_reminder") { await count("asked_offer_reminder_seen"); return; }  // (0.6.25) nor a reminder
   await updateEpisode(message.id, (current) => (message.asked === "offer_confirm"
     ? { ...current, confirmAskedAt: current.confirmAskedAt ?? Date.now() }
     : { ...current, askedEnd: Math.max(current.askedEnd ?? 0, pageEnd(current, message)) }));
@@ -1279,7 +1280,7 @@ async function offerOnFront() {
   const tab = await chrome.tabs.get(view.tabId).catch(() => null);
   // (the tab the participant looked at last, still the one in front in its window, still on that site)
   if (!tab?.active || !tab.url || hostOf(tab.url) !== hostOf(view.url)) return;
-  if (!(await offerQueued(view))) await offerFollowup(view);
+  if (!(await offerQueued(view)) && !(await offerFollowup(view))) await offerOutcomesReminder(view);
 }
 
 // A follow-up question on the page the participant just opened (`view`): about the oldest conversation
@@ -1346,10 +1347,10 @@ async function onFollowupAnswer(message, reply) {
 
 // Every outcomesReminderDays while anything waits on the outcomes page: a follow-up that is not done (lib/modes.js
 // followupOpen: not decided yet, decided and not acted on, the outcome questions, or "too early to tell") or a past
-// conversation to annotate. A reminder with a button that opens the page, unless the participant had that page open
-// within the last outcomesReminderDays; none once everything there is answered. (0.6.24) The reminder is a message
-// (remindByMessage), shown on the chat pages and under the icon until OK: a notification alone is not seen where the
-// computer does not show Chrome's notifications. It goes once nothing waits any more (updateBadge).
+// conversation to annotate. A notification that opens the page, unless the participant had that page open within
+// the last outcomesReminderDays; none once everything there is answered. (0.6.25) And a pop-up on the next chat page
+// the participant opens or stays on (offerOutcomesReminder), once, for computers that do not show Chrome's
+// notifications. Not a message from the study team (0.6.24 made it one): it bears on no payment.
 // NOTE: [edge case callout] as the heartbeat's, the alarm is created only when missing and timed from the
 // last check: created again at every browser start, it would never come for someone who closes Chrome daily
 let OUTCOMES_REMINDER_DAYS = STUDY_CONFIG.outcomesReminderDays ?? 2;
@@ -1389,8 +1390,43 @@ async function remindOutcomes() {
                            (finalWeek ? ` The outcome questions are due by ${day}, the end of your study.` : "") : "";
   const due = day ? ` (due by ${day})` : "";
   const pastAsks = past ? `${past === 1 ? "One past conversation waits" : `${past} past conversations wait`} for your answers ${followups ? "there too" : "on your Outcomes page"}${due}.` : "";
-  await remindByMessage("outcomes", "Unanswered questions", [asks, pastAsks].filter(Boolean).join(" "), "outcomes");
+  chrome.notifications.create("outcomes", {
+    type: "basic", iconUrl: "icons/icon128.png", title: "Advice Tracker: unanswered questions",
+    message: [asks, pastAsks, "Click to open the page."].filter(Boolean).join(" "),
+    requireInteraction: true,
+  });
+  await save("outcomesReminder", { id: `outcomes-${now.toString(36)}`, text: [asks, pastAsks].filter(Boolean).join(" "), at: now });
   await count("reminded_outcomes");
+}
+
+// (0.6.25) The reminder of the Outcomes page as a pop-up on the chat page the participant opens or stays on (as the
+// follow-up's: not while tracking is off, on an excluded site, or while they are in the middle of a conversation
+// there), once after each check; "Open the Outcomes page" opens it. Not once they opened that page since, or when
+// nothing waits there any more.
+async function offerOutcomesReminder(view) {
+  const reminder = await load("outcomesReminder");
+  if (!reminder) return false;
+  const settings = await getSettings(), now = Date.now();
+  if (!view?.url || trackingOff(settings) || excluded(settings, view.url) || (await busyOn(view, now))) return false;
+  const { followups, past } = outcomesWaiting((await loadAll("episode:")).map(([, record]) => record), settings, now, await studyEnd());
+  if (!(followups + past) || ((await load("outcomesSeenAt")) ?? -Infinity) >= reminder.at) {
+    await remove("outcomesReminder");
+    return false;
+  }
+  let response = null;
+  try {
+    response = await chrome.tabs.sendMessage(view.tabId, { type: "offer_reminder", reminder: { id: reminder.id, text: reminder.text },
+                                                           settings: panelSettings(settings) });
+  } catch (error) { /* tab closed, or a page without the content script */ }
+  if (!response?.shown) return false;
+  await remove("outcomesReminder");                // (once: the next one comes with the next check)
+  return true;
+}
+
+// The participant answered the pop-up: "open" opens the Outcomes page ("later", or "timeout" when it closed by itself)
+async function onReminderAnswer(message) {
+  await count(`outcomes_reminder_${message.answer}`);
+  if (message.answer === "open") openOutcomes("");
 }
 
 // The episode is no longer asked about: "No" (not advice) on an episode without answers. An open
@@ -1506,16 +1542,9 @@ async function updateBadge() {
   // (a queued question whose kind is off, or whose site is excluded, cannot be asked: it does not count)
   const askable = (record) => !Modes.viaQueue(record) || (kindOn(settings, record) && !excluded(settings, record.url));
   // (and the messages from the study team that are not read yet, 0.6.15)
-  const records = (await loadAll("episode:")).map(([, record]) => record);
-  // (0.6.24) a reminder of questions waiting on the Outcomes page goes once nothing waits there any more
-  const messages = (await load("teamMessages")) || [];
-  if (messages.some((message) => message.kind === "outcomes" && !message.readAt)) {
-    const { followups, past } = outcomesWaiting(records, settings, now, end);
-    if (!(followups + past)) return withdrawReminders("outcomes");          // (it draws the badge again)
-  }
-  const waiting = records.filter((record) => (Modes.waiting(record) && askable(record)) || Modes.updateMissed(record) ||
-                                             Modes.followupAsks(Modes.followupStage(record, now, end))).length +
-                  messages.filter((message) => !message.readAt).length;
+  const waiting = (await loadAll("episode:")).filter(([, record]) => (Modes.waiting(record) && askable(record)) || Modes.updateMissed(record) ||
+                                                                      Modes.followupAsks(Modes.followupStage(record, now, end))).length +
+                  ((await load("teamMessages")) || []).filter((message) => !message.readAt).length;
   await chrome.action.setBadgeText({ text: waiting ? String(waiting) : "" });
   await chrome.action.setBadgeBackgroundColor({ color: "#4f5bd5" });
 }
@@ -3350,10 +3379,11 @@ function weekReminder(period, active, due, to, deadline, unsure = false) {
     }
   }
   if (!active) {
-    lines.push(`The extension recorded no activity of yours in ${weeks}: ${period.last ? "" : "no advice conversation, "}no answers to its questions, no ` +
-               `feedback. To stay active, by ${by} answer quick questions or follow-up questions that are waiting, if there are any, or send ` +
-               "concrete feedback (Advice Tracker icon, then “Send feedback on the study”), for example about an advice conversation the " +
-               `extension missed or a possible improvement. An advice conversation that starts now does not count for ${weeks}. If you are still ` +
+    lines.push(`The extension recorded no activity of yours in ${weeks}: ${period.last ? "" : "no advice conversation, "}no answers to its quick ` +
+               `questions or outcome questions, no feedback. To stay active, by ${by} answer quick questions or outcome questions that are ` +
+               "waiting, if there are any (answering only whether you decided or acted does not count), or send concrete feedback (Advice " +
+               "Tracker icon, then “Send feedback on the study”), for example about an advice conversation the extension missed or a possible " +
+               `improvement. An advice conversation that starts now does not count for ${weeks}. If you are still ` +
                `not active then, you lose the payment for ${weeks} ($10) and the high-quality bonus.`);
   }
   return { id: `week-${period.name}`, title: `${weeks[0].toUpperCase()}${weeks.slice(1)} of your study ${period.last ? "have" : "has"} ended: please finish by ${by}`,
@@ -3575,6 +3605,7 @@ function handleMessage(message, sender, sendResponse) {
     case "activity": onActivity(message); break;
     case "rating_shown": onPanelShown(message, sender); break;
     case "offer_seen": onOfferSeen(message); break;
+    case "reminder_answer": onReminderAnswer(message); break;
     case "rating_submitted": finished(onRatingSubmitted); break;
     case "not_advice": finished(onNotAdvice); break;
     case "rating_closed": finished(onPanelClosed); break;
@@ -3711,6 +3742,8 @@ chrome.runtime.onInstalled.addListener(async (details) => {
   const appsTurnedOn = details.reason === "update" && /^0\.([0-5]\.\d+|6\.([0-9]|10))$/.test(details.previousVersion || "") &&
                        settings.readApps !== true && !(await load("appsFrom"));
   if (appsTurnedOn) await save("appsFrom", Date.now());
+  // (0.6.25) a reminder of the Outcomes page that 0.6.24 made as a message, not read yet, goes: it is a pop-up now
+  if (details.reason === "update" && details.previousVersion === "0.6.24") await withdrawReminders("outcomes");
   delete settings.readApps;
   // NOTE: [design thought] the update to 0.5 keeps the promises earlier versions made:
   // - "Hold my answers on this computer" is gone, but what it held is not sent without asking: it

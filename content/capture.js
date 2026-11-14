@@ -428,6 +428,9 @@
       // background decided it from the page it last saw, and the tab may have gone to another site since
       const item = message.item.site === config.name ? message.item : { ...message.item, summary: "" };
       sendResponse(RatingPanel.offerFollowup(item, message.settings) ? { shown: true } : { busy: true });
+    } else if (message.type === "offer_reminder") {
+      // (0.6.25: the reminder of the Outcomes page, background.js offerOutcomesReminder)
+      sendResponse(RatingPanel.offerReminder(message.reminder, message.settings) ? { shown: true } : { busy: true });
     } else if (message.type === "show_message") {
       // (a message from the study team, 0.6.15: its own small window, whatever else is open)
       sendResponse({ shown: RatingPanel.showMessage(message.message) });

@@ -77,8 +77,9 @@ things are waiting.
 From a week after an advice conversation, a small pop-up on a chat site's page asks whether you made
 a decision about it and acted on it, and then how things turned out. If it is too early to tell, say
 so, and it asks again two days later. Everything you have not answered yet, and the past
-conversations, are on the **Outcomes** page (extension icon → Outcomes); a reminder with a button
-that opens it comes every two days while anything there is unanswered. In week 5 of your study the
+conversations, are on the **Outcomes** page (extension icon → Outcomes); every two days while
+anything there is unanswered, a pop-up on your AI chat page and a Chrome notification remind you.
+In week 5 of your study the
 outcome questions of every advice conversation are due, even if you have not acted yet or it is too
 early to tell. With the outcome questions, the Outcomes page shows you the conversation with names,
 e-mail addresses, phone numbers and similar details already removed, in a box you can edit: delete
@@ -106,9 +107,9 @@ when, and the rules (they are the consent form's). In short:
   tasks left (weeks 1 to 3: quick questions not answered; week 5: outcome questions not answered):
   the extension sends it by itself, with the day by which to finish, three days later.
 - **Messages from the study team** (for example a request to update), these reminders, and the
-  reminders of a pause and of questions on your Outcomes page show in a small window on your AI
-  chat pages and as a notification (if your computer shows Chrome's notifications), and stay under
-  the extension icon → **Messages from the study team** until you click OK.
+  reminder that tracking is still paused show in a small window on your AI chat pages and as a
+  notification (if your computer shows Chrome's notifications), and stay under the extension icon →
+  **Messages from the study team** until you click OK.
 
 ## What it collects, and your controls
 
@@ -184,9 +185,10 @@ when, and the rules (they are the consent form's). In short:
   for your participant ID, and tells the server when a message arrived and when you clicked OK on
   it. A message is shown as plain text.
 - At the end of each of weeks 1 to 3 and of week 5, and three days later, the extension tells the
-  study server what it found: whether you were active (an advice conversation, answers, feedback:
-  yes or no for each), how many advice conversations still have due questions, and whether it
-  reminded you. Counts and times only, nothing of a conversation.
+  study server what it found: whether you were active (an advice conversation; answers to quick,
+  outcome or past-conversation questions, not one-click answers such as whether you decided or
+  acted; feedback: yes or no for each), how many advice conversations still have due questions,
+  and whether it reminded you. Counts and times only, nothing of a conversation.
 - With each set of answers the extension sends how long the questions took you (when they appeared,
   when you finished the first and the last answer, when you pressed Submit). The study team uses it
   when it reviews the quality of the answers.
