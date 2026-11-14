@@ -3,7 +3,7 @@
 What changed in each version of the Advice Tracker extension, newest first: for participants, and in
 the *Data notes* for the study team. How to install and use it: [README.md](README.md).
 
-## 0.6.25
+## 0.7
 
 - **The reminder of your Outcomes page is a pop-up, not a message.** Every two days while
   questions wait there, a Chrome notification reminds you as before 0.6.24, and now also a pop-up on
@@ -20,7 +20,7 @@ the *Data notes* for the study team. How to install and use it: [README.md](READ
   13 checked for advice (older ones are not read)". Only conversations last used in the 90 days
   before you joined are read; the box had looked like a scan that stopped early.
 - Data notes:
-  - `week_status` `active` / `active_by.answers`: from 0.6.25 the times of a follow-up's one-click
+  - `week_status` `active` / `active_by.answers`: from 0.7 the times of a follow-up's one-click
     answers (`checkin.decision`: `at`, `decidedAt`, `actedAt`, `tooEarlyAt`) no longer count; answers
     = `answers.ratedAt` (quick questions), `answers.answeredAt` (a past conversation's),
     `checkin.doneAt` (outcome questions). `lib/modes.js` recordActivity.

@@ -16,7 +16,7 @@ version (one-click install) is in preparation; until then, follow the steps belo
 
 **How it works, in detail:** [`docs/advice-tracker-design.pdf`](docs/advice-tracker-design.pdf).
 
-## What's new in version 0.6.25
+## What's new in version 0.7
 
 - The reminder every two days that questions wait on your **Outcomes** page is a pop-up on your AI
   chat page, with a button that opens the page (and a notification, as before), no longer a message
@@ -377,7 +377,7 @@ Full privacy policy: the link in the study e-mail.
 
 ## For reviewers and developers
 
-- `manifest.json` (Manifest V3, version 0.6.25): permissions `storage`, `unlimitedStorage` (no
+- `manifest.json` (Manifest V3, version 0.7): permissions `storage`, `unlimitedStorage` (no
   install warning), `alarms`, `notifications`, and host permissions for the five chat sites (plus
   `localhost` for the mock test page); no remote code.
 - Past and other-device conversations (0.6; past ones opt-in, other devices always read since
