@@ -409,6 +409,13 @@
                  { no: "Not now", yes: "Open", answers: { no: "later", yes: "open" } });
   }
 
+  // (0.6.25) The reminder of the Outcomes page after the two-day check (background.js offerOutcomesReminder): a pop-up
+  // as the others, once; it closes by itself as they do. Its text is the extension's own, with no conversation text.
+  function offerReminder(reminder, settings) {
+    return popup({ id: reminder.id }, settings, Questions.escape(reminder.text), "offer_reminder", "reminder_answer", () => {},
+                 { no: "Later", yes: "Open the Outcomes page", answers: { no: "later", yes: "open" } });
+  }
+
   // The follow-up (0.6.9) about one advice conversation from a week or more ago, one question at a time:
   // "Did you make a decision yet?", then "Did you act on this decision yet?", and if not yet, when they plan
   // to; once the outcome questions are ready, it offers the outcomes page. The background decides what
@@ -597,5 +604,6 @@
     if (open?.dataset.message === id) open.remove();
   }
 
-  root.RatingPanel = { show, refresh, close, closeOffer, offerUpdate, offerTab, offerConfirm, offerInvite, offerFollowup, showMessage, closeMessage };
+  root.RatingPanel = { show, refresh, close, closeOffer, offerUpdate, offerTab, offerConfirm, offerInvite, offerFollowup, offerReminder, showMessage,
+                       closeMessage };
 })(self);
