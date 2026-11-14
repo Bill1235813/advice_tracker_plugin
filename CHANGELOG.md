@@ -3,6 +3,35 @@
 What changed in each version of the Advice Tracker extension, newest first: for participants, and in
 the *Data notes* for the study team. How to install and use it: [README.md](README.md).
 
+## 0.6.24
+
+- **Grok: a conversation on grok.com is no longer asked about again as one from another device.**
+  Grok shows the time under each message you send (seen in November 2026); the extension read it as
+  part of the message, so no message sent on the page matched its copy read from the site, and every
+  Grok chat was found a second time as a conversation from another device, and asked about again.
+  Your messages are now taken without that line.
+- **Turning past conversations on or off** no longer reads again the conversations begun after you
+  joined (on the web or another device): they hold no past message, and one answered No could come
+  back as a new question from a later message.
+- **The past conversations' box on the Outcomes page counts past conversations only** (begun before
+  you joined). The ones read for your other devices were counted too ("6/6" where 3 were past).
+- Data notes:
+  - Up to 0.6.23, every Grok web chat was judged twice: from the page (`source` web) and again from
+    the site (`source` app), and its other-device episodes (`app`) repeat the web ones. Since 0.6.20
+    both carry the same chat code (`chat`), so the repeats can be found and dropped (relay data of
+    Nov 13: all 5 Grok web chats with a chat code). The page's copy of each Grok message (judged
+    texts, annotations) ended with its time ("1:07 PM") up to 0.6.23; copies read from the site
+    never did. `lib/sites.js` `userTail` (used by `content/capture.js`) strips a last line that is a
+    time alone; a message that is a time alone keeps it.
+  - `historySwitched` keeps the reading state (`hist:`) of a conversation created at or after the
+    past boundary (the earlier of `pastBefore` and `joinedAt`) with no turn before it; the others,
+    and one with no known creation time, are read again from scratch, as before. The list (`hlist:`)
+    is listed again. A conversation begun before joining and continued after it can still be asked
+    about again from a later turn (`hdone` keeps episode ids only).
+  - `ui/checkin.js` readingStatus: listed = the list's conversations begun (created, else updated)
+    before `pastBefore` and updated within the lookback (at most 150); checked = the conversations
+    read for the past scan (`pastRead`), at most as many.
+
 ## 0.6.23
 
 - **The clock margin around a pause: 1 minute** (10 before). A message read from the site (another

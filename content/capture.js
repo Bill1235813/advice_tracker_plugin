@@ -135,7 +135,9 @@
     const parts = config.text ? outermost(turn, config.text).filter((part) => shown(part) && !inNoise(part, turn)) : [];
     const roots = parts.length ? parts : [turn];
     const tidy = (text) => text.replace(/[​⁠]/g, "").replace(/ +\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
-    const text = roots.map((root) => tidy(shownText(root, SKIP))).filter(Boolean).join("\n\n");
+    const joined = roots.map((root) => tidy(shownText(root, SKIP))).filter(Boolean).join("\n\n");
+    // (a line the site adds under a message the participant sent, such as its time: config.userTail, Grok)
+    const text = role === "user" && config.userTail ? joined.replace(config.userTail, "").trim() : joined;
     // NOTE: [edge case callout] attachments are recognised by the page's structure, not by the size
     // of a picture: a thumbnail still loading, or off-screen, has no size, and icons, avatars and
     // favicons can be large files drawn small. (An uploaded picture often sits in a button that
