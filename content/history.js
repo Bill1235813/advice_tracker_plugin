@@ -31,6 +31,14 @@
   }
 
   async function answer(message) {
+    // (0.6.24) the account the extension reads this site with, when it has one (message.account, a hash): a page that
+    // shows another account answers so before reading anything, and the worker asks another tab (background.js
+    // historyStep)
+    if (message.account) {
+      if (!auth) auth = await reader.auth(context);
+      const shown = auth?.accountId ? Episodes.hash(String(auth.accountId)) : null;
+      if (shown && shown !== message.account) return { ok: true, account: shown, accountKnown: true, otherAccount: true };
+    }
     const result = message.what === "list"
       ? { page: await withAuth((credentials) => reader.list(context, credentials, message.cursor ?? null)) }
       : await readOne(message);
