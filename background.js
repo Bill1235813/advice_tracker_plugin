@@ -3790,6 +3790,9 @@ chrome.runtime.onInstalled.addListener(async (details) => {
     chrome.tabs.create({ url: chrome.runtime.getURL("options/options.html#history") });
   }
   await resumeAll();
+  // (0.7) an update sends a heartbeat at once, with the new version: the study team's monitor sees who updated, without
+  // waiting up to 12 hours for the next one (in heartbeatIfDue's queue: a start of the worker then finds it just sent)
+  if (details.reason === "update") await serialized("heartbeat", heartbeat);
 });
 // a browser start: sites that refused the reading (HTTP 403) are tried again
 chrome.runtime.onStartup.addListener(async () => {
