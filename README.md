@@ -29,6 +29,15 @@ version (one-click install) is in preparation; until then, follow the steps belo
 - The Outcomes page's past conversations box counts only past conversations (from before you
   joined), not the ones read from your other devices.
 
+- **Reminders without notifications**: the reminder that tracking is still paused, and the one
+  that questions wait on your Outcomes page, now also show in a small window on your AI chat pages
+  and under the Advice Tracker icon until you click OK, not only as a notification (some computers
+  do not show Chrome's notifications). Each has its button: **Resume tracking**, or **Open the
+  Outcomes page**.
+- **Two accounts of a site** (for example two Google accounts on Gemini, each in its own tab): the
+  account first read is read on from its own tab, and another account's tab reads nothing; with
+  only another account open, reading waits a few minutes (an hour before).
+
 In 0.6.23:
 
 - Conversations on your other devices are read from one minute after you resume tracking (ten
@@ -195,8 +204,8 @@ things are waiting.
 From a week after an advice conversation, a small pop-up on a chat site's page asks whether you made
 a decision about it and acted on it, and then how things turned out. If it is too early to tell, say
 so, and it asks again two days later. Everything you have not answered yet, and the past
-conversations, are on the **Outcomes** page (extension icon → Outcomes); a Chrome notification
-reminds you of it every two days while anything there is unanswered. In week 5 of your study the
+conversations, are on the **Outcomes** page (extension icon → Outcomes); a reminder with a button
+that opens it comes every two days while anything there is unanswered. In week 5 of your study the
 outcome questions of every advice conversation are due, even if you have not acted yet or it is too
 early to tell. With the outcome questions, the Outcomes page shows you the conversation with names,
 e-mail addresses, phone numbers and similar details already removed, in a box you can edit: delete
@@ -223,9 +232,10 @@ when, and the rules (they are the consent form's). In short:
 - **A reminder at the end of weeks 1, 2, 3 and 5**, if you were not active in that time or have due
   tasks left (weeks 1 to 3: quick questions not answered; week 5: outcome questions not answered):
   the extension sends it by itself, with the day by which to finish, three days later.
-- **Messages from the study team** (for example a request to update) and these reminders show as
-  a notification and on your AI chat pages, and stay under the extension icon → **Messages from
-  the study team**.
+- **Messages from the study team** (for example a request to update), these reminders, and the
+  reminders of a pause and of questions on your Outcomes page show in a small window on your AI
+  chat pages and as a notification (if your computer shows Chrome's notifications), and stay under
+  the extension icon → **Messages from the study team** until you click OK.
 
 ## What it collects, and your controls
 

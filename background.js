@@ -1343,8 +1343,10 @@ async function onFollowupAnswer(message, reply) {
 
 // Every outcomesReminderDays while anything waits on the outcomes page: a follow-up that is not done (lib/modes.js
 // followupOpen: not decided yet, decided and not acted on, the outcome questions, or "too early to tell") or a past
-// conversation to annotate. A notification that opens the page, unless the participant had that page open within
-// the last outcomesReminderDays; none once everything there is answered.
+// conversation to annotate. A reminder with a button that opens the page, unless the participant had that page open
+// within the last outcomesReminderDays; none once everything there is answered. (0.6.24) The reminder is a message
+// (remindByMessage), shown on the chat pages and under the icon until OK: a notification alone is not seen where the
+// computer does not show Chrome's notifications. It goes once nothing waits any more (updateBadge).
 // NOTE: [edge case callout] as the heartbeat's, the alarm is created only when missing and timed from the
 // last check: created again at every browser start, it would never come for someone who closes Chrome daily
 const OUTCOMES_REMINDER_DAYS = STUDY_CONFIG.outcomesReminderDays ?? 2;
@@ -1355,15 +1357,21 @@ async function keepOutcomesAlarm() {
                                              periodInMinutes: period / 60000 });
 }
 
+// What waits on the Outcomes page: follow-ups not done, and past conversations to annotate
+function outcomesWaiting(records, settings, now, end) {
+  const followups = records.filter((record) => Modes.followupOpen(Modes.followupStage(record, now, end))).length;
+  // (a past conversation waits while the page can ask about it: countQueued in ui/checkin.js)
+  const past = records.filter((record) => record.source === "past" && kindOn(settings, record) && !excluded(settings, record.url) &&
+                                          Modes.queueDue(record, now, settings.followupSeconds)).length;
+  return { followups, past };
+}
+
 async function remindOutcomes() {
   const settings = await getSettings(), now = Date.now(), end = await studyEnd();
   await save("outcomesCheckedAt", now);
   if (!settings.participantId) return;
   const records = (await loadAll("episode:")).map(([, record]) => record);
-  const followups = records.filter((record) => Modes.followupOpen(Modes.followupStage(record, now, end))).length;
-  // (a past conversation waits while the page can ask about it: countQueued in ui/checkin.js)
-  const past = records.filter((record) => record.source === "past" && kindOn(settings, record) && !excluded(settings, record.url) &&
-                                          Modes.queueDue(record, now, settings.followupSeconds)).length;
+  const { followups, past } = outcomesWaiting(records, settings, now, end);
   // (not when the participant opened the page within the last period: also right after the last reminder, and
   // not long ago when the alarm comes late, after Chrome was closed for days)
   if (!(followups + past) || now < ((await load("outcomesSeenAt")) ?? -Infinity) + OUTCOMES_REMINDER_DAYS * DAY_MS) return;
@@ -1378,11 +1386,7 @@ async function remindOutcomes() {
                            (finalWeek ? ` The outcome questions are due by ${day}, the end of your study.` : "") : "";
   const due = day ? ` (due by ${day})` : "";
   const pastAsks = past ? `${past === 1 ? "One past conversation waits" : `${past} past conversations wait`} for your answers ${followups ? "there too" : "on your Outcomes page"}${due}.` : "";
-  chrome.notifications.create("outcomes", {
-    type: "basic", iconUrl: "icons/icon128.png", title: "Advice Tracker: unanswered questions",
-    message: [asks, pastAsks, "Click to open the page."].filter(Boolean).join(" "),
-    requireInteraction: true,
-  });
+  await remindByMessage("outcomes", "Unanswered questions", [asks, pastAsks].filter(Boolean).join(" "), "outcomes");
   await count("reminded_outcomes");
 }
 
@@ -1499,9 +1503,16 @@ async function updateBadge() {
   // (a queued question whose kind is off, or whose site is excluded, cannot be asked: it does not count)
   const askable = (record) => !Modes.viaQueue(record) || (kindOn(settings, record) && !excluded(settings, record.url));
   // (and the messages from the study team that are not read yet, 0.6.15)
-  const waiting = (await loadAll("episode:")).filter(([, record]) => (Modes.waiting(record) && askable(record)) || Modes.updateMissed(record) ||
-                                                                      Modes.followupAsks(Modes.followupStage(record, now, end))).length +
-                  ((await load("teamMessages")) || []).filter((message) => !message.readAt).length;
+  const records = (await loadAll("episode:")).map(([, record]) => record);
+  // (0.6.24) a reminder of questions waiting on the Outcomes page goes once nothing waits there any more
+  const messages = (await load("teamMessages")) || [];
+  if (messages.some((message) => message.kind === "outcomes" && !message.readAt)) {
+    const { followups, past } = outcomesWaiting(records, settings, now, end);
+    if (!(followups + past)) return withdrawReminders("outcomes");          // (it draws the badge again)
+  }
+  const waiting = records.filter((record) => (Modes.waiting(record) && askable(record)) || Modes.updateMissed(record) ||
+                                             Modes.followupAsks(Modes.followupStage(record, now, end))).length +
+                  messages.filter((message) => !message.readAt).length;
   await chrome.action.setBadgeText({ text: waiting ? String(waiting) : "" });
   await chrome.action.setBadgeBackgroundColor({ color: "#4f5bd5" });
 }
@@ -1670,12 +1681,22 @@ async function historyStep(host, settings, state, busy) {
   await save(`hstate:${host}`, { ...state, priority: request.reason === "asked" ? null : state.priority ?? null,
                                  lastWhat: request.refresh ? "refresh" : request.what, readAt: request.what === "read" ? now : state.readAt ?? 0 });
   const epoch = await epochNow();
-  let reply = null;
+  // NOTE: [design thought] (0.6.24) the site is read with one account (historyReply), and its tabs can show others (a
+  // second Google account in its own tab, say). Each tab is told which account that is: a tab of another account
+  // answers so without reading anything (content/history.js), and the next tab is asked. Before, the first tab that
+  // answered was used, and when it showed another account, reading the site stopped for an hour, also with a tab of
+  // the right account open.
+  const bound = await load(`haccount:${host}`);
+  let reply = null, other = null;
   for (const tab of tabs) {
-    reply = await Promise.race([chrome.tabs.sendMessage(tab.id, { type: "history_fetch", ...request, windows }).catch(() => null),
-                                new Promise((resolve) => setTimeout(() => resolve(null), ANSWER_WAIT_MS))]);
-    if (reply) break;
+    const answer = await Promise.race([chrome.tabs.sendMessage(tab.id, { type: "history_fetch", ...request, windows, account: bound ?? null }).catch(() => null),
+                                       new Promise((resolve) => setTimeout(() => resolve(null), ANSWER_WAIT_MS))]);
+    // (also a tab from before 0.6.24, which reads with any account: what it read is not used)
+    if (answer?.ok && bound && answer.accountKnown && answer.account !== bound) { other = answer; continue; }
+    if (answer) { reply = answer; break; }
   }
+  // (no tab of the account read here: the other account's answer stops the site's reading a while, historyReply)
+  reply = reply ?? other;
   // switched off, deleted or paused meanwhile: what came back is dropped
   if ((await epochNow()) !== epoch || !historyAllowed(await getSettings(), host)) return true;
   await historyReply(host, request, reply);
@@ -1730,7 +1751,9 @@ async function pastLeft() {
 // instead of data (blocked: nothing until the browser starts again); no answer or another error: 10
 // minutes. For one conversation, a failure is that conversation's (tried again later, at most
 // READ_TRIES_MAX times), and 404 means it is gone. The site is read for one account only: the first
-// one read.
+// one read; when no tab shows it, the site waits OTHER_ACCOUNT_WAIT_MS (an hour before 0.6.24: closing the
+// other account's tab did not bring the reading back sooner).
+const OTHER_ACCOUNT_WAIT_MS = 5 * 60000;
 async function historyReply(host, request, reply) {
   const state = (await load(`hstate:${host}`)) || {};
   const now = Date.now();
@@ -1769,7 +1792,7 @@ async function historyReply(host, request, reply) {
   // looks like another account's (sameAccount) pauses it
   const bound = await load(`haccount:${host}`);
   const account = reply.account ?? (reply.accountKnown === false ? `assumed-${await load("installId")}` : null);
-  if (!account || (bound && bound !== account)) return pause(3600 * 1000, { otherAccount: true });
+  if (!account || (bound && bound !== account)) return pause(OTHER_ACCOUNT_WAIT_MS, { otherAccount: true });
   if (request.what === "list" && reply.accountKnown === false && !(await sameAccount(host, reply.page))) return pause(3600 * 1000, { otherAccount: true });
   if (!bound) await save(`haccount:${host}`, account);
   await save(`hstate:${host}`, { ...state, backoffMs: 0, signedOut: false, otherAccount: false, noAnswer: false, waitUntil: 0 });
@@ -2867,7 +2890,9 @@ async function keepHeartbeatAlarm() {
 // before it pauses, ui/rules.html): under 12 hours nothing happens; from 12 hours on a reminder comes; after
 // 24 hours the week's payment is reduced for the paused time; after a week participation ends. A notification
 // comes pausedReminderHours after the pause began and at every full day of it (lib/modes.js pausedReminderAt),
-// and says which of these holds; "Resume tracking" on it resumes, "Stay paused" waits for the next one.
+// and says which of these holds; "Resume tracking" on it resumes. (0.6.24) It is a message (remindByMessage), shown on
+// the chat pages (also while paused) and under the icon until OK, not a notification alone: a computer may not show
+// Chrome's notifications. A newer one takes the place of one not read yet, and they go when tracking resumes.
 // NOTE: [edge case callout] the alarm is created only when missing, timed from the pause's start and the last
 // reminder (pausedRemindedAt): Chrome may drop alarms when it restarts, and a reminder that fell due while
 // Chrome was closed comes a minute after its start instead of being skipped. It is cleared whenever tracking
@@ -2877,7 +2902,8 @@ async function keepPausedReminder() {
   const settings = await getSettings();
   if (!settings.paused || !settings.participantId) {
     await chrome.alarms.clear("pausedReminder");
-    chrome.notifications.clear("paused");
+    chrome.notifications.clear("paused");              // (a reminder from before 0.6.24)
+    await withdrawReminders("paused");
     return;
   }
   if (await chrome.alarms.get("pausedReminder")) return;
@@ -2895,12 +2921,7 @@ async function remindPaused() {
   const rule = hours < 24 ? "Your payment is not affected yet: a pause of more than 24 hours reduces this week's payment."
     : hours < 7 * 24 ? "This week's payment is reduced for the time paused, and a pause of more than a week ends your participation in the study."
     : "A pause of more than a week ends your participation in the study: the study team will contact you.";
-  chrome.notifications.create("paused", {
-    type: "basic", iconUrl: "icons/icon128.png", title: "Advice Tracker: tracking is still paused",
-    message: `You paused tracking ${ago} ago. Nothing is recorded while it is paused. ${rule}`,
-    buttons: [{ title: "Resume tracking" }, { title: "Stay paused" }],
-    requireInteraction: true,
-  });
+  await remindByMessage("paused", "Tracking is still paused", `You paused tracking ${ago} ago. Nothing is recorded while it is paused. ${rule}`, "resume");
   await save("pausedRemindedAt", now);
   await count("reminded_paused");
   await keepPausedReminder();                                 // (the alarm came once: the next reminder's is set)
@@ -3122,9 +3143,10 @@ async function addTeamMessages(messages, settings) {
   for (const message of fresh) {
     chrome.notifications.create(`team|${message.id}`, {
       type: "basic", iconUrl: "icons/icon128.png", title: `Advice Tracker: ${message.title || "a message from the study team"}`,
-      message: message.text, requireInteraction: true,
+      message: message.text, requireInteraction: true, ...(message.actionLabel ? { buttons: [{ title: message.actionLabel }] } : {}),
     });
-    await count(message.automatic ? "week_reminder" : "team_message_received");
+    // (a reminder of a kind is counted where it is made: remindPaused, remindOutcomes)
+    if (!message.kind) await count(message.automatic ? "week_reminder" : "team_message_received");
     await upload("team_message", { message: message.id, state: "received", ...(message.automatic ? { automatic: true } : {}) }, settings);
   }
   if (fresh.length) await updateBadge();
@@ -3148,7 +3170,8 @@ async function offerTeamMessage(tabId, url, settings) {
   if (!message) return false;
   let response = null;
   try {
-    response = await chrome.tabs.sendMessage(tabId, { type: "show_message", message: { id: message.id, title: message.title, text: message.text } });
+    response = await chrome.tabs.sendMessage(tabId, { type: "show_message", message: { id: message.id, title: message.title, text: message.text,
+                                                                                      actionLabel: message.actionLabel } });
   } catch (error) { /* tab closed, or a page without the content script */ }
   if (!response?.shown) return false;
   await serialized("teamMessages", async () => {
@@ -3175,9 +3198,55 @@ async function onTeamMessageRead(message) {
   for (const tab of await chrome.tabs.query({})) chrome.tabs.sendMessage(tab.id, { type: "close_message", id: read.id }).catch(() => {});
   await count("team_message_read");
   await upload("team_message", { message: read.id, state: "read", where: message.where ?? null,
-                                 seconds_waited: Math.round((read.readAt - read.receivedAt) / 1000), ...(read.automatic ? { automatic: true } : {}) },
+                                 seconds_waited: Math.round((read.readAt - read.receivedAt) / 1000), ...(read.automatic ? { automatic: true } : {}),
+                                 ...(message.action ? { action: message.action } : {}) },
                await getSettings());
   await updateBadge();
+}
+
+// ---------------- the extension's own reminders as messages (0.6.24) ----------------
+// A reminder the extension makes itself, of a pause that goes on or of questions waiting on the Outcomes page, is
+// shown as the study team's messages are (addTeamMessages): a window on the chat pages, under the icon and on the
+// messages page, until OK, and a notification where the computer shows Chrome's notifications. A notification alone
+// is not seen by a participant whose computer does not show them. `kind` tells the reminders apart: a newer one of a
+// kind takes the place of an older one not read yet, and one that no longer holds goes (withdrawReminders).
+// `action`: its button besides OK, which does what the notification's button or click did.
+const REMINDER_ACTIONS = { resume: "Resume tracking", outcomes: "Open the Outcomes page" };
+async function remindByMessage(kind, title, text, action) {
+  await withdrawReminders(kind);
+  const now = Date.now();
+  await addTeamMessages([{ id: `${kind}-${now.toString(36)}`, title, text, sentAt: now, automatic: true, kind, action,
+                           actionLabel: REMINDER_ACTIONS[action] }], await getSettings());
+}
+
+// The reminders of `kind` that are not read yet go: from the list, the chat pages and the notifications (the study
+// server hears it: state "withdrawn")
+async function withdrawReminders(kind) {
+  let gone = [];
+  await serialized("teamMessages", async () => {
+    const kept = (await load("teamMessages")) || [];
+    gone = kept.filter((each) => each.kind === kind && !each.readAt);
+    if (gone.length) await save("teamMessages", kept.filter((each) => !gone.includes(each)));
+  });
+  if (!gone.length) return;
+  const settings = await getSettings();
+  for (const message of gone) {
+    chrome.notifications.clear(`team|${message.id}`);
+    for (const tab of await chrome.tabs.query({})) chrome.tabs.sendMessage(tab.id, { type: "close_message", id: message.id }).catch(() => {});
+    await upload("team_message", { message: message.id, state: "withdrawn", automatic: true }, settings);
+  }
+  await updateBadge();
+}
+
+// A reminder's button was clicked (`where`: "chat", "popup", "page" or "notification"): the reminder is read, and its
+// button does what it says
+async function onMessageAction(message) {
+  const entry = ((await load("teamMessages")) || []).find((each) => each.id === message.id);
+  if (!entry?.action) return;
+  await onTeamMessageRead({ id: entry.id, where: message.where, action: entry.action });
+  // (resuming here is the popup's Resume: the settings change clears the pause and its reminders, keepPausedReminder)
+  if (entry.action === "resume") await updateSettings({ paused: false, pausedAt: null });
+  if (entry.action === "outcomes") openOutcomes("");
 }
 
 // ---------------- the reminder at the end of a study week (0.6.15) ----------------
@@ -3431,6 +3500,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     onTeamMessageRead(message).then(() => sendResponse({ ok: true }));
     return true;
   }
+  if (message.type === "message_action") {
+    onMessageAction(message).then(() => sendResponse({ ok: true }));
+    return true;
+  }
   // a conversation as it will be sent, for a page that shows it before it goes (ui/checkin.js): redacted here,
   // where the placeholders get their numbers, so the page shows the very text the upload will hold
   if (message.type === "redact_transcript") {
@@ -3504,7 +3577,12 @@ chrome.notifications.onClicked.addListener(async (id) => {
   chrome.notifications.clear(id);
   if (kind === "paused") return chrome.runtime.openOptionsPage();
   if (kind === "outcomes") return openOutcomes("");
-  if (kind === "team") return openMessages();           // (the page shows the whole message, with its OK)
+  // (the page shows the whole message, with its OK; a reminder of questions on the Outcomes page opens that page, as its
+  // button does, and is read)
+  if (kind === "team") {
+    const entry = ((await load("teamMessages")) || []).find((each) => each.id === episode);
+    return entry?.action === "outcomes" ? onMessageAction({ id: entry.id, where: "notification" }) : openMessages();
+  }
   // (a check-in notification from before 0.6.9 that is still in the tray)
   if (kind === "checkin") return openOutcomes(`?episode=${encodeURIComponent(episode)}`);
   // NOTE: [edge case callout] a notification can stay in the tray after its question was answered
@@ -3514,7 +3592,9 @@ chrome.notifications.onClicked.addListener(async (id) => {
 });
 
 chrome.notifications.onButtonClicked.addListener(async (id, button) => {
-  if (id !== "paused") return;
+  // (0.6.24: a reminder's button, onMessageAction)
+  if (id.startsWith("team|")) return onMessageAction({ id: id.slice("team|".length), where: "notification" });
+  if (id !== "paused") return;                          // (a pause reminder from before 0.6.24)
   chrome.notifications.clear(id);
   await count(button === 0 ? "paused_reminder_resume" : "paused_reminder_stay");
   // (the settings change resumes tracking the way the popup does, and clears the reminder's alarm)

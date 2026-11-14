@@ -52,6 +52,18 @@ function messageCard(message) {
       await chrome.runtime.sendMessage({ type: "message_read", id: message.id, where: "page" });
     };
     card.append(button);
+    // (0.6.24) a reminder of the extension's own: its button does what it says, and the message is read too
+    if (message.actionLabel) {
+      const act = document.createElement("button");
+      act.type = "button";
+      act.className = "ok";
+      act.textContent = message.actionLabel;
+      act.onclick = async () => {
+        act.disabled = button.disabled = true;
+        await chrome.runtime.sendMessage({ type: "message_action", id: message.id, where: "page" });
+      };
+      card.append(act);
+    }
   }
   return card;
 }

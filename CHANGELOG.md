@@ -15,6 +15,20 @@ the *Data notes* for the study team. How to install and use it: [README.md](READ
   shows a conversation at perplexity.ai/session/… since about November 8, 2026 (older addresses
   lead there); the extension did not read that address, so it never linked the conversation on the
   page to the same one read from the site, and each load of the page started a new one.
+- **Reminders without notifications.** The reminder that tracking is still paused (after 12 hours,
+  then every day) and the one every two days that questions wait on your Outcomes page were Chrome
+  notifications only, which some computers do not show. They now show as the study team's messages
+  do: a small window on your AI chat pages (also while tracking is paused), under the Advice Tracker
+  icon and on the messages page, until you click OK, and a notification where it can be shown.
+  Each has its button: **Resume tracking**, or **Open the Outcomes page**. A newer one takes the
+  place of one you did not read; a pause's goes when you resume, the Outcomes one once nothing
+  waits there. (Quick questions still use a notification when their tab is closed.)
+- **Two accounts of a site**: with another account of a site open in a tab (a second Google account
+  on Gemini, say), reading past and other-device conversations could stop for an hour, even with a
+  tab of the account first read open, and closing the other tab or reloading did not bring it back
+  sooner. Now each tab is asked in turn: a tab of another account reads nothing and says so, the
+  account first read is read on from its own tab, and with no tab of it open, reading waits five
+  minutes at a time.
 - **Turning past conversations on or off** no longer reads again the conversations begun after you
   joined (on the web or another device): they hold no past message, and one answered No could come
   back as a new question from a later message.
@@ -38,6 +52,18 @@ the *Data notes* for the study team. How to install and use it: [README.md](READ
     into the thread's uuid (`perplexityThreadId`, as `lib/history/perplexity.js` chatKeyOf), so the
     page, the background's lookups by address (readFirst, settleHanded, readingStalled) and the
     reading of the site name a thread alike.
+  - Reminders: `team_message` events now also for the extension's own reminders of a pause
+    (`message` `paused-<time>`) and of the Outcomes page (`outcomes-<time>`), `automatic: true`, with
+    states `received`, `read` and (new) `withdrawn` (replaced by a newer one, tracking resumed, or
+    nothing waits on the Outcomes page); a `read` through the reminder's button carries `action`
+    (`resume`, `outcomes`), and `where` can be `notification`. The counts `reminded_paused` and
+    `reminded_outcomes` are as before; the notifications `paused` and `outcomes` are no longer made
+    (a reminder's is `team|<message>`). `background.js` remindByMessage, withdrawReminders,
+    onMessageAction; the window's button in `content/rating_panel.js`, the popup, `ui/messages.js`.
+  - Two accounts: each `history_fetch` carries the account read (`account`, a hash); `content/history.js`
+    answers `{otherAccount: true}` for another account before reading; `historyStep` asks the site's
+    tabs in turn; with none of the account read, the site waits `OTHER_ACCOUNT_WAIT_MS` (5 minutes, an
+    hour before; Grok's list check keeps its hour).
   - `historySwitched` keeps the reading state (`hist:`) of a conversation created at or after the
     past boundary (the earlier of `pastBefore` and `joinedAt`) with no turn before it; the others,
     and one with no known creation time, are read again from scratch, as before. The list (`hlist:`)
