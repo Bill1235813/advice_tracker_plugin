@@ -3,6 +3,35 @@
 What changed in each version of the Advice Tracker extension, newest first: for participants, and in
 the *Data notes* for the study team. How to install and use it: [README.md](README.md).
 
+## 0.6.25
+
+- **The reminder of your Outcomes page is a pop-up, not a message.** Every two days while
+  questions wait there, a Chrome notification reminds you as before 0.6.24, and now also a pop-up on
+  the next AI chat page you open or stay on (once; not while you are typing there, not if you opened
+  the Outcomes page since), with **Open the Outcomes page** and **Later**; it closes by itself as
+  the other pop-ups do. 0.6.24 had made it a message under the Advice Tracker icon, kept until you
+  clicked OK, as the study team's are: those are for what bears on the payment, as the reminder
+  that tracking is still paused, which stays a message.
+- **One-click answers no longer count as being active**: answering only whether you decided or
+  acted, when you plan to act, or "too early to tell" (the follow-up's pop-up). Quick questions,
+  outcome questions, past conversations' questions and feedback count, as does an advice
+  conversation (the study rules page and the end-of-week reminder say so).
+- **The past conversations' box names the days read**: "3/3 past conversations from Aug 15 to Nov
+  13 checked for advice (older ones are not read)". Only conversations last used in the 90 days
+  before you joined are read; the box had looked like a scan that stopped early.
+- Data notes:
+  - `week_status` `active` / `active_by.answers`: from 0.6.25 the times of a follow-up's one-click
+    answers (`checkin.decision`: `at`, `decidedAt`, `actedAt`, `tooEarlyAt`) no longer count; answers
+    = `answers.ratedAt` (quick questions), `answers.answeredAt` (a past conversation's),
+    `checkin.doneAt` (outcome questions). `lib/modes.js` recordActivity.
+  - The Outcomes reminder: the notification `outcomes` again (0.6.24: `team|outcomes-<time>` with a
+    `team_message`); the pop-up is counted on this computer only (`asked_offer_reminder_seen`,
+    `outcomes_reminder_open` / `_later` / `_timeout`), nothing is uploaded for it. An update from
+    0.6.24 withdraws an Outcomes message not read yet (`team_message` state `withdrawn`).
+  - The Gemini past scan of a tester (TEST-BZ-2, reinstalled with the same ID) read 3 past
+    conversations in both installs (the same chat codes): its list's other chats were from after
+    joining or older than the look-back; 0.6.23's box counted every listed chat ("8/50").
+
 ## 0.6.24
 
 - **Grok: a conversation on grok.com is no longer asked about again as one from another device.**

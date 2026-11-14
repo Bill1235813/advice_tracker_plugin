@@ -16,7 +16,17 @@ version (one-click install) is in preparation; until then, follow the steps belo
 
 **How it works, in detail:** [`docs/advice-tracker-design.pdf`](docs/advice-tracker-design.pdf).
 
-## What's new in version 0.6.24
+## What's new in version 0.6.25
+
+- The reminder every two days that questions wait on your **Outcomes** page is a pop-up on your AI
+  chat page, with a button that opens the page (and a notification, as before), no longer a message
+  under the Advice Tracker icon. The reminder that tracking is still paused stays such a message.
+- Answering only whether you decided or acted no longer counts as being active in a week: quick
+  questions, outcome questions, past conversations' questions and feedback do (see the study rules).
+- The Outcomes page's past conversations box says which days' conversations are read (the 90 days
+  before you joined); older ones are not read.
+
+In 0.6.24:
 
 - **Grok**: a conversation you have on grok.com is no longer asked about a second time as one from
   another device. (Grok now shows the time under each message you send, and the extension took it
@@ -28,12 +38,10 @@ version (one-click install) is in preparation; until then, follow the steps belo
   you joined: one you answered **No** to could come back as a new question.
 - The Outcomes page's past conversations box counts only past conversations (from before you
   joined), not the ones read from your other devices.
-
-- **Reminders without notifications**: the reminder that tracking is still paused, and the one
-  that questions wait on your Outcomes page, now also show in a small window on your AI chat pages
-  and under the Advice Tracker icon until you click OK, not only as a notification (some computers
-  do not show Chrome's notifications). Each has its button: **Resume tracking**, or **Open the
-  Outcomes page**.
+- **Reminders without notifications**: the reminder that tracking is still paused also shows in a
+  small window on your AI chat pages and under the Advice Tracker icon until you click OK, with a
+  **Resume tracking** button, not only as a notification (some computers do not show Chrome's
+  notifications).
 - **Two accounts of a site** (for example two Google accounts on Gemini, each in its own tab): the
   account first read is read on from its own tab, and another account's tab reads nothing; with
   only another account open, reading waits a few minutes (an hour before).
@@ -204,8 +212,9 @@ things are waiting.
 From a week after an advice conversation, a small pop-up on a chat site's page asks whether you made
 a decision about it and acted on it, and then how things turned out. If it is too early to tell, say
 so, and it asks again two days later. Everything you have not answered yet, and the past
-conversations, are on the **Outcomes** page (extension icon → Outcomes); a reminder with a button
-that opens it comes every two days while anything there is unanswered. In week 5 of your study the
+conversations, are on the **Outcomes** page (extension icon → Outcomes); every two days while
+anything there is unanswered, a pop-up on your AI chat page and a Chrome notification remind you.
+In week 5 of your study the
 outcome questions of every advice conversation are due, even if you have not acted yet or it is too
 early to tell. With the outcome questions, the Outcomes page shows you the conversation with names,
 e-mail addresses, phone numbers and similar details already removed, in a box you can edit: delete
@@ -233,9 +242,9 @@ when, and the rules (they are the consent form's). In short:
   tasks left (weeks 1 to 3: quick questions not answered; week 5: outcome questions not answered):
   the extension sends it by itself, with the day by which to finish, three days later.
 - **Messages from the study team** (for example a request to update), these reminders, and the
-  reminders of a pause and of questions on your Outcomes page show in a small window on your AI
-  chat pages and as a notification (if your computer shows Chrome's notifications), and stay under
-  the extension icon → **Messages from the study team** until you click OK.
+  reminder that tracking is still paused show in a small window on your AI chat pages and as a
+  notification (if your computer shows Chrome's notifications), and stay under the extension icon →
+  **Messages from the study team** until you click OK.
 
 ## What it collects, and your controls
 
@@ -311,9 +320,10 @@ when, and the rules (they are the consent form's). In short:
   for your participant ID, and tells the server when a message arrived and when you clicked OK on
   it. A message is shown as plain text.
 - At the end of each of weeks 1 to 3 and of week 5, and three days later, the extension tells the
-  study server what it found: whether you were active (an advice conversation, answers, feedback:
-  yes or no for each), how many advice conversations still have due questions, and whether it
-  reminded you. Counts and times only, nothing of a conversation.
+  study server what it found: whether you were active (an advice conversation; answers to quick,
+  outcome or past-conversation questions, not one-click answers such as whether you decided or
+  acted; feedback: yes or no for each), how many advice conversations still have due questions,
+  and whether it reminded you. Counts and times only, nothing of a conversation.
 - With each set of answers the extension sends how long the questions took you (when they appeared,
   when you finished the first and the last answer, when you pressed Submit). The study team uses it
   when it reviews the quality of the answers.
@@ -367,7 +377,7 @@ Full privacy policy: the link in the study e-mail.
 
 ## For reviewers and developers
 
-- `manifest.json` (Manifest V3, version 0.6.24): permissions `storage`, `unlimitedStorage` (no
+- `manifest.json` (Manifest V3, version 0.6.25): permissions `storage`, `unlimitedStorage` (no
   install warning), `alarms`, `notifications`, and host permissions for the five chat sites (plus
   `localhost` for the mock test page); no remote code.
 - Past and other-device conversations (0.6; past ones opt-in, other devices always read since
