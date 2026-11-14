@@ -525,7 +525,14 @@ async function readingStatus(stored) {
     const name = SITE_CONFIGS[host]?.name || host;
     const state = stored[`hstate:${host}`] || null;
     const list = stored[`hlist:${host}`] || null;
-    const read = Object.keys(stored).filter((key) => key.startsWith(`hist:${host}/`)).length;
+    // (0.6.24) the past conversations only, as the box is theirs: those listed that began before the participant joined,
+    // within the look-back, and those read for it (hist pastRead). The site's conversations since joining (other devices)
+    // are read too, and are not counted here: counted, they made recent chats look like past ones.
+    // NOTE: [edge case callout] at most 150 past conversations are read on a site (background.js PAST_SCAN_MAX)
+    const pastBefore = stored.pastBefore ?? stored.joinedAt ?? 0;
+    const pastFrom = Math.max(stored.deletedAt || 0, (stored.joinedAt ?? 0) - (STUDY_CONFIG.pastLookbackDays ?? 90) * 86400000);
+    const pastListed = Math.min(150, (list?.items || []).filter((item) => (item.c ?? item.u) < pastBefore && item.u >= pastFrom).length);
+    const read = Object.entries(stored).filter(([key, hist]) => key.startsWith(`hist:${host}/`) && hist?.pastRead).length;
     const found = Object.values(stored).filter((record) => record && record.site === name && record.source === "past" && record.chatKey).length;
     let tabs = [];
     try { tabs = await chrome.tabs.query({ url: `https://${host}/*` }); } catch (error) { /* no tab access: say nothing about tabs */ }
@@ -551,8 +558,10 @@ async function readingStatus(stored) {
     else if (!list) text = "waiting its turn";
     else {
       kind = "ok";
-      const listed = list.items?.length ?? 0, checked = Math.min(read, listed);
-      text = `${list.end && checked >= listed ? "done" : "reading"}: ${checked}/${listed} conversations checked for advice. ${found} advice detected.`;
+      const listed = pastListed, checked = Math.min(read, listed);
+      // (the list read back to the look-back, or to its end, and every past one on it read: done)
+      const reachedBack = list.end || (list.reached ?? Infinity) <= pastFrom;
+      text = `${reachedBack && checked >= listed ? "done" : "reading"}: ${checked}/${listed} past conversations checked for advice. ${found} advice detected.`;
     }
     lines.push({ name, kind, text });
   }

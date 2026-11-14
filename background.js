@@ -2437,18 +2437,35 @@ async function takeFromElsewhere(key, chat, page, settings) {
 }
 
 // ---- switches, deletion ----
-// Reading past conversations was turned on or off (the only switch since 0.6.11): every walk starts again
-// from scratch (records and the remembered decisions keep it from asking twice; an open episode a walk held
-// is taken up again by the new walk, or ends by itself: settleHanded), and requests under way are dropped.
+// Reading past conversations was turned on or off (the only switch since 0.6.11): the walk of every conversation
+// that may hold a past turn starts again from scratch (records and the remembered decisions keep it from asking
+// twice; an open episode such a walk held is taken up again by the new walk, or ends by itself: settleHanded),
+// and site reads under way are dropped.
+// NOTE: [thought process] (0.6.24) a conversation begun after joining (on the web or another device) holds no past
+// turn, so the switch changes nothing in it: its walk is kept. Before 0.6.24 it was read and judged again too, and
+// one answered No could come back as a new question: the walk lets the declined episode go at its first turn
+// (hdone), and the search that starts again at the next turn can take that turn for a new request.
+// NOTE: [edge case callout] that can still happen in a conversation begun before joining and continued after it.
 // Turned off (`stopped`), each past episode found:
 // - without answers goes (one the web page took over ends as "removed" through its chat);
 // - with answers keeps them, but none of its text is sent any more (keepText).
 async function historySwitched(stopped) {
   await serialized("historyEpoch", async () => save("historyEpoch", (await epochNow()) + 1));
-  for (const [name] of [...(await loadAll("hist:")), ...(await loadAll("hlist:"))]) await remove(name);
-  for (const name of await waitingTexts()) await chrome.storage.session.remove(name);
+  // (a turn before this time is past: lib/history.js windows; a conversation with no known creation time starts again)
+  const joinedAt = await load("joinedAt");
+  const pastBefore = Math.min((await load("pastBefore")) ?? joinedAt, joinedAt);
+  const begunAfter = (hist) => hist.createdAt >= pastBefore && (hist.turns || []).every((turn) => !(turn.at < pastBefore));
+  const restarted = new Set();
+  for (const [name, hist] of await loadAll("hist:")) {
+    if (begunAfter(hist)) continue;
+    restarted.add(name.slice("hist:".length));
+    await remove(name);
+  }
+  // (the list is listed again: a conversation whose walk is kept is not read again while its time on the list is the same)
+  for (const [name] of await loadAll("hlist:")) await remove(name);
+  for (const name of await waitingTexts()) if (restarted.has(name.slice("htext:".length))) await chrome.storage.session.remove(name);
   for (const [, record] of await loadAll("episode:")) {
-    if (record.heldBy === "history" && record.walk) await updateEpisode(record.id, (current) => ({ ...current, walk: null }));
+    if (record.heldBy === "history" && record.walk && restarted.has(record.walk)) await updateEpisode(record.id, (current) => ({ ...current, walk: null }));
     if (!stopped || record.source !== "past") continue;
     if (!record.answers) {
       if (record.status === "open" && record.heldBy === "web") { await removeEpisode(record.id); continue; }
