@@ -556,22 +556,38 @@
     const shadow = styled(host);
     shadow.innerHTML = `
       <div class="offer message"><b>Advice Tracker</b> (research study)<br><b id="title"></b><div class="text" id="text"></div>
-        <div class="actions"><button id="later">Later</button><button class="primary" id="ok">OK, I have read it</button></div></div>`;
+        <div class="actions"><button id="later">Later</button><button id="ok">OK, I have read it</button><button class="primary" id="act" hidden></button></div></div>`;
     // NOTE: [design thought] textContent, not HTML: whatever the study server sent is shown as plain text
     shadow.getElementById("title").textContent = message.title || "A message from the study team";
     shadow.getElementById("text").textContent = message.text;
     document.body.appendChild(host);
     shadow.getElementById("later").onclick = () => host.remove();
+    // (cut off from the extension, e.g. it was just updated: a click cannot be sent, and the message stays new)
+    const cutOff = () => {
+      if (chrome.runtime?.id) return false;
+      shadow.getElementById("text").textContent = "Advice Tracker was updated meanwhile. Please reload this page; the message is under the Advice Tracker icon.";
+      shadow.getElementById("ok").hidden = shadow.getElementById("act").hidden = true;
+      return true;
+    };
     shadow.getElementById("ok").onclick = () => {
-      // (cut off from the extension, e.g. it was just updated: the click cannot be sent, and the message stays new)
-      if (!chrome.runtime?.id) {
-        shadow.getElementById("text").textContent = "Advice Tracker was updated meanwhile. Please reload this page; the message is under the Advice Tracker icon.";
-        shadow.getElementById("ok").hidden = true;
-        return;
-      }
+      if (cutOff()) return;
       send({ type: "message_read", id: message.id, where: "chat" });
       host.remove();
     };
+    // (0.6.24) a reminder of the extension's own has a button that does what it says ("Resume tracking", "Open the
+    // Outcomes page", background.js remindByMessage); clicked, the message is read too. Else OK is the main button.
+    const act = shadow.getElementById("act");
+    if (message.actionLabel) {
+      act.textContent = message.actionLabel;
+      act.hidden = false;
+      act.onclick = () => {
+        if (cutOff()) return;
+        send({ type: "message_action", id: message.id, where: "chat" });
+        host.remove();
+      };
+    } else {
+      shadow.getElementById("ok").className = "primary";
+    }
     return true;
   }
 

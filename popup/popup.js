@@ -68,6 +68,18 @@ async function refresh() {
       await chrome.runtime.sendMessage({ type: "message_read", id: message.id, where: "popup" });
       refresh();
     };
+    // (0.6.24) a reminder of the extension's own: its button does what it says, and the message is read too
+    if (message.actionLabel) {
+      const act = document.createElement("button");
+      act.className = "primary";
+      act.textContent = message.actionLabel;
+      act.onclick = async () => {
+        await chrome.runtime.sendMessage({ type: "message_action", id: message.id, where: "popup" });
+        refresh();
+      };
+      item.querySelector("button").className = "";
+      item.append(act);
+    }
     return item;
   }));
   document.getElementById("messages").textContent = `Messages from the study team${unread.length ? ` (${unread.length} new)` : ""}`;
