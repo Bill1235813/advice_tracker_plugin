@@ -561,7 +561,7 @@ async function readingStatus(stored) {
       const listed = pastListed, checked = Math.min(read, listed);
       // (the list read back to the look-back, or to its end, and every past one on it read: done)
       const reachedBack = list.end || (list.reached ?? Infinity) <= pastFrom;
-      // (0.6.25) with the days they were last used in: only those are read, not older ones (a tester's account with many
+      // (0.7) with the days they were last used in: only those are read, not older ones (a tester's account with many
       // older chats took "3/3" for a failed scan)
       const day = (at) => new Date(at).toLocaleDateString(undefined, { month: "short", day: "numeric" });
       text = `${reachedBack && checked >= listed ? "done" : "reading"}: ${checked}/${listed} past conversations from ${day(pastFrom)} to ` +

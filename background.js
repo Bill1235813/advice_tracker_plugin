@@ -278,7 +278,7 @@ async function onView(message, sender) {
     if (record.status === "open" && record.chatKey !== view.key && !ownText(record)) await ask(record.id, "onOtherConversation", view);
   }
   // a page of the site came to the front: its next question about a conversation read from the site, else
-  // a follow-up question (0.6.9), else the reminder of the Outcomes page (0.6.25)
+  // a follow-up question (0.6.9), else the reminder of the Outcomes page (0.7)
   if (!(await offerQueued(view)) && !(await offerFollowup(view))) await offerOutcomesReminder(view);
 }
 
@@ -1042,7 +1042,7 @@ async function onPanelShown(message, sender) {
 // it leaves askedEnd alone: the first ratings page still comes (lib/modes.js).
 async function onOfferSeen(message) {
   if (message.asked === "offer_invite") { await count("asked_offer_invite_seen"); return; }      // an invitation asks nothing yet
-  if (message.asked === "offer_reminder") { await count("asked_offer_reminder_seen"); return; }  // (0.6.25) nor a reminder
+  if (message.asked === "offer_reminder") { await count("asked_offer_reminder_seen"); return; }  // (0.7) nor a reminder
   await updateEpisode(message.id, (current) => (message.asked === "offer_confirm"
     ? { ...current, confirmAskedAt: current.confirmAskedAt ?? Date.now() }
     : { ...current, askedEnd: Math.max(current.askedEnd ?? 0, pageEnd(current, message)) }));
@@ -1348,7 +1348,7 @@ async function onFollowupAnswer(message, reply) {
 // Every outcomesReminderDays while anything waits on the outcomes page: a follow-up that is not done (lib/modes.js
 // followupOpen: not decided yet, decided and not acted on, the outcome questions, or "too early to tell") or a past
 // conversation to annotate. A notification that opens the page, unless the participant had that page open within
-// the last outcomesReminderDays; none once everything there is answered. (0.6.25) And a pop-up on the next chat page
+// the last outcomesReminderDays; none once everything there is answered. (0.7) And a pop-up on the next chat page
 // the participant opens or stays on (offerOutcomesReminder), once, for computers that do not show Chrome's
 // notifications. Not a message from the study team (0.6.24 made it one): it bears on no payment.
 // NOTE: [edge case callout] as the heartbeat's, the alarm is created only when missing and timed from the
@@ -1399,7 +1399,7 @@ async function remindOutcomes() {
   await count("reminded_outcomes");
 }
 
-// (0.6.25) The reminder of the Outcomes page as a pop-up on the chat page the participant opens or stays on (as the
+// (0.7) The reminder of the Outcomes page as a pop-up on the chat page the participant opens or stays on (as the
 // follow-up's: not while tracking is off, on an excluded site, or while they are in the middle of a conversation
 // there), once after each check; "Open the Outcomes page" opens it. Not once they opened that page since, or when
 // nothing waits there any more.
@@ -3742,7 +3742,7 @@ chrome.runtime.onInstalled.addListener(async (details) => {
   const appsTurnedOn = details.reason === "update" && /^0\.([0-5]\.\d+|6\.([0-9]|10))$/.test(details.previousVersion || "") &&
                        settings.readApps !== true && !(await load("appsFrom"));
   if (appsTurnedOn) await save("appsFrom", Date.now());
-  // (0.6.25) a reminder of the Outcomes page that 0.6.24 made as a message, not read yet, goes: it is a pop-up now
+  // (0.7) a reminder of the Outcomes page that 0.6.24 made as a message, not read yet, goes: it is a pop-up now
   if (details.reason === "update" && details.previousVersion === "0.6.24") await withdrawReminders("outcomes");
   delete settings.readApps;
   // NOTE: [design thought] the update to 0.5 keeps the promises earlier versions made:

@@ -409,7 +409,7 @@
                  { no: "Not now", yes: "Open", answers: { no: "later", yes: "open" } });
   }
 
-  // (0.6.25) The reminder of the Outcomes page after the two-day check (background.js offerOutcomesReminder): a pop-up
+  // (0.7) The reminder of the Outcomes page after the two-day check (background.js offerOutcomesReminder): a pop-up
   // as the others, once; it closes by itself as they do. Its text is the extension's own, with no conversation text.
   function offerReminder(reminder, settings) {
     return popup({ id: reminder.id }, settings, Questions.escape(reminder.text), "offer_reminder", "reminder_answer", () => {},
