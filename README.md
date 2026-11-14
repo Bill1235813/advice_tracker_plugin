@@ -25,6 +25,8 @@ version (one-click install) is in preparation; until then, follow the steps belo
   questions, outcome questions, past conversations' questions and feedback do (see the study rules).
 - The Outcomes page's past conversations box says which days' conversations are read (the 90 days
   before you joined); older ones are not read.
+- Right after an update, the extension tells the study team its new version (a heartbeat, as twice
+  a day), so the team sees who has updated.
 
 In 0.6.24:
 
@@ -310,9 +312,10 @@ when, and the rules (they are the consent form's). In short:
   computer, which never leaves it and holds a fingerprint of each detail, not the detail itself;
   "Delete all data" empties it. (The messages checked by the study's AI model have labels without
   numbers, as before.)
-- Twice a day the extension sends a heartbeat with counts (found / rated / not advice), whether
-  tracking is on (paused or not, and on which of the five sites it can capture), and when you last
-  sent a message to one of the five AI assistants (the time only, never the text). A change of what
+- Twice a day, and right after it is updated, the extension sends a heartbeat with counts (found /
+  rated / not advice), whether tracking is on (paused or not, and on which of the five sites it can
+  capture), and when you last sent a message to one of the five AI assistants (the time only, never
+  the text). A change of what
   is tracked is reported when it happens, and removing the extension is reported too. The study team
   uses this to know that the extension is still installed and when it was tracking (see *Study
   rules* for what a pause means for payment).
@@ -458,7 +461,7 @@ Full privacy policy: the link in the study e-mail.
     0.6.18 an `update` prompt also says `where` it was answered: `popup` (the chat page's pop-up) or
     `page` (**No changes** on the Quick check-ins page, which lists an update offered and not given:
     `lib/modes.js` `updateMissed`).
-  - `heartbeat` (twice a day) and `status` (on a change): `tracking`, `paused`, `paused_at`,
+  - `heartbeat` (twice a day, and at once after an update, since 0.7) and `status` (on a change): `tracking`, `paused`, `paused_at`,
     `listening_sites`, `excluded_sites`, `sites_without_access`, `read_past`, `read_apps`; the
     heartbeat also the extension's `version`, `history` (per site: ok, not_yet, waiting, signed_out,
     other_account, blocked, unsupported), `waiting_past`, `joined_at`, `joined_estimated`,

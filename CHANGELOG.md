@@ -19,7 +19,11 @@ the *Data notes* for the study team. How to install and use it: [README.md](READ
 - **The past conversations' box names the days read**: "3/3 past conversations from Aug 15 to Nov
   13 checked for advice (older ones are not read)". Only conversations last used in the 90 days
   before you joined are read; the box had looked like a scan that stopped early.
+- **A heartbeat right after an update**, with the new version, so the study team's monitor sees who
+  has updated at once, not up to 12 hours later.
 - Data notes:
+  - `heartbeat`: also one right after each update (`onInstalled` reason update, in the heartbeat's
+    queue, so the worker's start finds it just sent; `previous_heartbeat_at` shows the gap).
   - `week_status` `active` / `active_by.answers`: from 0.7 the times of a follow-up's one-click
     answers (`checkin.decision`: `at`, `decidedAt`, `actedAt`, `tooEarlyAt`) no longer count; answers
     = `answers.ratedAt` (quick questions), `answers.answeredAt` (a past conversation's),
