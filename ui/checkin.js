@@ -359,6 +359,13 @@ function reviewed(card, review) {
 // What the participant asked about: their own one-sentence description of the decision, if they gave one;
 // else what they asked
 function recall(episode) {
+  // (0.7.1: a conversation answered before Advice Tracker was added again has no text on this computer: background.js
+  // checkRestore. The participant can find it on the site by its date.)
+  if (episode.restored) {
+    const when = new Date(episode.openedAt).toLocaleString(undefined, { month: "long", day: "numeric", hour: "numeric", minute: "2-digit" });
+    return `<p class="meta">Your conversation on ${Questions.escape(episode.site)} from ${Questions.escape(when)}. Its text is not on this
+      computer, because Advice Tracker was added to Chrome again since; you can find it on ${Questions.escape(episode.site)}.</p>`;
+  }
   return episode.answers?.decision ? `<p class="meta">In your words, you were asking about:</p>${quote(episode.answers.decision)}`
                                    : `<p class="meta">You asked:</p>${quote(episode.openingText || "")}`;
 }
