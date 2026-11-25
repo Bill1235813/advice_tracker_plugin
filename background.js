@@ -43,6 +43,7 @@
 //   feedbackAt      when the participant sent feedback (times, no text): one of the ways to be active in a week
 //   trackingLog     [{at, on: [hosts]}]: from `at` on, tracking was on for these sites (none while paused)
 //   deletedAt       when "delete all data" last ran
+//   restoredChecked (0.7.1) the study server said what an earlier install of this participant ID did (checkRestore)
 //   appsFrom        (an install updated to 0.6.11 that had not agreed to read other devices) the update: turns from
 //                   other devices before it are never read
 importScripts("config.js", "lib/sites.js", "lib/episodes.js", "lib/modes.js", "lib/redact.js", "lib/similarity.js", "lib/questions.js",
@@ -1658,6 +1659,8 @@ async function historyTick() {
   // hour while past conversations are read, and every few minutes until the study server answered once
   // (when the participant joined is asked with it until the server answered: past turns wait for both)
   const pastWait = (await load("pastAnnotated")) === undefined || !(await load("joinedChecked")) ? PAST_ASK_RETRY_MINUTES * 60000 : 3600 * 1000;
+  // (0.7.1: what an earlier install of this participant ID did, once: past turns wait for it too)
+  await checkRestore(settings);
   if (settings.readPast && Date.now() >= ((await load("pastAskedAt")) ?? 0) + pastWait) {
     await checkJoined(settings);
     await checkPastAnnotated(settings);
@@ -2119,8 +2122,9 @@ async function settleHistory(key) {
       // then a past turn waits, asked again in a few minutes, rather than being passed over for good
       // (and once it said when the participant joined: before that, turns of their study weeks on an earlier
       // install could count as past ones, checkJoined)
+      // (0.7.1: and once it said which ones an earlier install of this participant ID skipped or answered No: checkRestore)
       if (owner === "past" && !hist.pastFound && (hist.pastJudged || 0) < PAST_TURNS_JUDGED &&
-          ((await load("pastAnnotated")) === undefined || !(await load("joinedChecked")))) {
+          ((await load("pastAnnotated")) === undefined || !(await load("joinedChecked")) || !(await load("restoredChecked")))) {
         chrome.alarms.create(`hjudge|${key}`, { delayInMinutes: PAST_ASK_RETRY_MINUTES });
         return;
       }
@@ -3110,6 +3114,107 @@ async function checkPastAnnotated(settings) {
   await updateBadge();
 }
 
+// ---------------- an install made again (0.7.1) ----------------
+// NOTE: [edge case callout] Chrome drops an extension loaded from a folder ("Load unpacked") when the folder is
+// gone (moved, deleted, cleaned up), and everything this install kept goes with it. Loaded again with the same
+// participant ID, it would start empty: no follow-up or outcome questions for the conversations answered
+// before, and week reports that count none of the earlier activity. The study server kept what was sent (GET
+// /restore, relay 0.6.8), so once per install, when its participant ID is set (or at the first heartbeat or
+// week check after an update), the conversations answered on an earlier install come back, with their
+// follow-up where it was and no text (none is sent back); the feedback sent and the week reports made then
+// count for this install's week reports; and the past conversations skipped or answered No then are never
+// offered again (the annotated ones are GET /past's: checkPastAnnotated).
+// NOTE: [design thought] the days when no install ran stay untracked, as the study counts them: turns typed
+// then are never read (lib/history.js, ALIVE_MS)
+function checkRestore(settings) {
+  return serialized("restore", async () => {
+    if (!settings.participantId || (await load("restoredChecked"))) return;
+    // NOTE: [edge case callout] only once the server said when the participant ID first reported (checkJoined, asked
+    // first at every heartbeat): before that this install's own start counts as the study's, and the weeks an
+    // earlier install ran would look like ones before the study
+    if (!(await load("joinedChecked"))) return;
+    let answer = null;
+    try {
+      const query = new URLSearchParams({ participant_id: settings.participantId });
+      const response = await fetch(`${settings.serverUrl}/restore?${query}`, { headers: { "X-Study-Key": settings.studyKey }, signal: AbortSignal.timeout(10000) });
+      // (a server without the route, 404: nothing to take; any other failure: asked again at the next heartbeat,
+      // week check or history tick)
+      if (!response.ok && response.status !== 404) return;
+      answer = response.ok ? await response.json() : null;
+    } catch (error) { return; }
+    // NOTE: [edge case callout] an answer about a participant ID changed meanwhile is not this ID's
+    if ((await getSettings()).participantId !== settings.participantId) return;
+    if (answer) await applyRestore(answer);
+    await save("restoredChecked", true);
+    await updateBadge();
+  });
+}
+
+// What the study server kept of earlier installs (checkRestore), taken in. Only what came before this install
+// began (`joinedAt`): an install that was never lost finds only its own doings here, and nothing changes.
+// NOTE: [edge case callout] a second computer set up later with the same participant ID would take the first
+// one's earlier conversations too, and ask their follow-ups on both; the pilot's participants use one computer
+async function applyRestore(answer) {
+  const settings = await getSettings(), started = generation, end = await studyEnd();
+  const joinedAt = (await load("joinedAt")) ?? Date.now(), floor = (await load("deletedAt")) || 0;
+  const list = (value) => (Array.isArray(value) ? value : []);
+  let earlier = false;
+  // the study conversations answered before this install began (none from before "delete all data")
+  for (const entry of list(answer.episodes)) {
+    const host = Object.keys(SITE_CONFIGS).find((name) => SITE_CONFIGS[name].name === entry.site);
+    if (!host || typeof entry.id !== "string" || !["web", "app"].includes(entry.source) || !Number.isFinite(entry.opened_at) ||
+        !Number.isFinite(entry.rated_at) || entry.opened_at >= joinedAt || entry.opened_at < floor) continue;
+    earlier = true;
+    const record = Modes.restoredRecord(entry, settings.followupSeconds, end, `https://${host}/`);
+    const added = await serialized(`episode:${entry.id}`, async () => {
+      if (started !== generation || (await load(`episode:${entry.id}`))) return false;        // (deleted meanwhile, or known here)
+      await save(`episode:${entry.id}`, record);
+      return true;
+    });
+    if (added) {
+      await count("restored");
+      await armFollowup(entry.id);
+    }
+  }
+  // feedback sent before this install began: it made the participant active in its week
+  const feedback = list(answer.feedback_at).filter((at) => Number.isFinite(at) && at < joinedAt);
+  if (feedback.length) {
+    earlier = true;
+    await serialized("feedbackAt", async () => {
+      const known = (await load("feedbackAt")) || [];
+      await save("feedbackAt", [...known, ...feedback.filter((at) => !known.includes(at))].sort((a, b) => a - b).slice(-200));
+    });
+  }
+  // past conversations skipped or answered No: never offered again (as rememberDecided does here)
+  const decided = list(answer.past_decided).filter((id) => typeof id === "string");
+  if (decided.length) {
+    await serialized("hdone", async () => {
+      const done = (await load("hdone")) || [];
+      await save("hdone", [...done, ...decided.filter((id) => !done.includes(id))].slice(-2000));
+    });
+  }
+  // the week reports made before this install began are not made again; and weekCheck looks at the weeks from the
+  // participant's start, so one an earlier install never reported (it was gone by then) is reported now
+  const reports = list(answer.weeks).filter((report) => typeof report.week === "string" && ["end", "deadline"].includes(report.moment) &&
+                                                       Number.isFinite(report.at) && report.at < joinedAt);
+  if (reports.length) earlier = true;
+  if (!earlier) return;
+  const start = await studyDay(0);
+  await serialized("weekStatus", async () => {
+    const status = (await load("weekStatus")) || { since: Date.now(), parts: {} };
+    const parts = { ...status.parts };
+    for (const report of reports) {
+      const part = { ...parts[report.week] };
+      if (!part[report.moment]) {
+        part[report.moment] = { at: report.at, active: report.active, due: report.due,
+                                ...(report.moment === "end" ? { reminded: report.reminded } : {}) };
+      }
+      parts[report.week] = part;
+    }
+    await save("weekStatus", { ...status, since: Number.isFinite(start) ? Math.min(status.since, start) : status.since, parts });
+  });
+}
+
 // The study server can switch reading off for a site without a new release (GET /config:
 // {history: {"chatgpt.com": false}}); a server without it leaves things as they are
 async function fetchStudyConfig(settings) {
@@ -3298,10 +3403,15 @@ async function onMessageAction(message) {
 // first looked at is reported without a reminder (the day it would name has passed).
 const WEEK_REMINDER_DAYS = STUDY_CONFIG.weekReminderDays ?? 3;
 
-function weekCheck() {
+async function weekCheck() {
+  // (an install made again first takes in what the study server kept of the earlier one: checkRestore)
+  await checkRestore(await getSettings());
   return serialized("weekStatus", async () => {
     const settings = await getSettings(), start = await studyDay(0), now = Date.now();
     if (!settings.participantId || !Number.isFinite(start)) return;
+    // NOTE: [edge case callout] nothing is reported before the study server said what an earlier install of this
+    // participant ID did (asked again at every heartbeat): the report would count none of it, and could not be taken back
+    if (!(await load("restoredChecked"))) return;
     let status = await load("weekStatus");
     if (!status) {
       status = { since: now, parts: {} };
@@ -3439,7 +3549,8 @@ async function deleteAll() {
   // participant agrees again to turn it on; other devices are still read), and nothing from before
   // now is ever read again (deletedAt is the floor of lib/history.js windows).
   const kept = {};
-  for (const name of ["settings", "heartbeatAt", "joinedAt", "joinedEstimated", "joinedChecked", "pastBefore", "trackingLog", "aliveLog", "aliveGaps", "installId",
+  // (and restoredChecked, 0.7.1: conversations the participant deleted here never come back from the study server)
+  for (const name of ["settings", "heartbeatAt", "joinedAt", "joinedEstimated", "joinedChecked", "restoredChecked", "pastBefore", "trackingLog", "aliveLog", "aliveGaps", "installId",
                       "lastMessageAt", "pausedRemindedAt", "weekStatus", "feedbackAt", "teamMessages",
                       "historyEpoch", "hconfig", ...HISTORY_SITES.map((host) => `haccount:${host}`)]) {
     const value = await load(name);
@@ -3767,7 +3878,8 @@ chrome.storage.onChanged.addListener((changes, area) => {
   if (differs("participantId")) {
     const corrected = Boolean(before.participantId && after.participantId);
     (corrected ? load("joinedAt").then(async (joinedAt) => { if (joinedAt) await save("pastBefore", joinedAt); await remove("joinedChecked"); }) : Promise.resolve())
-      .then(() => remove("pastAnnotated")).then(() => checkJoined(after)).then(() => checkPastAnnotated(after));
+      .then(() => remove("pastAnnotated")).then(() => checkJoined(after)).then(() => checkPastAnnotated(after))
+      .then(() => remove("restoredChecked")).then(() => checkRestore(after)).then(weekCheck);
   }
   // reading past conversations turned on or off: recorded (with the version of the text agreed to), and the
   // walks start again (opting out stops it, and its unanswered past episodes go)

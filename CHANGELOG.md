@@ -3,6 +3,28 @@
 What changed in each version of the Advice Tracker extension, newest first: for participants, and in
 the *Data notes* for the study team. How to install and use it: [README.md](README.md).
 
+## 0.7.1
+
+- **Added again, the extension picks up where it left off.** If Chrome dropped Advice Tracker (its
+  folder was moved, deleted or cleaned up) and you load it again with the same Prolific ID, it now
+  gets back from the study server what you had done: the follow-up and outcome questions of the
+  conversations you answered before come again (named by site and date: their text is not on the
+  computer any more), your earlier answers and feedback count for your study weeks, and past
+  conversations you skipped or answered No are not offered again (those you annotated already were
+  not). Nothing else changes for an install that was never lost.
+- Data notes:
+  - New request `GET /restore?participant_id=` (relay 0.6.8), once per install, after `GET /joined`
+    answered: the study conversations answered on earlier installs with their follow-up steps, the
+    times of feedback and week reports, the past conversations decided. Ids, sites and times only, no
+    text. Only what came before this install began (`joinedAt`) and after "delete all data" is taken.
+  - Restored records: `restored: true`, no text, `url` = the site's address; their follow-up is rebuilt
+    by replaying the recorded answers (`lib/modes.js` restoredRecord). Their `followup` and `checkin`
+    events look like any other's (`checkin` without `transcript`).
+  - `heartbeat`: `restored` = how many conversations came back.
+  - `week_status`: an install made again reports the weeks from the participant's start, counting the
+    earlier install's activity; a week the earlier install reported is not reported again, and one it
+    never reported (it was gone by then) is reported late. No report goes out before the server answered.
+
 ## 0.7
 
 - **The reminder of your Outcomes page is a pop-up, not a message.** Every two days while
