@@ -180,23 +180,26 @@ async function onSnapshot(message, sender) {
     if (!chat) await save(`chat:${key}`, Episodes.newChat({ key, site: message.site, now: Date.now() }));
     const stored = await load(`snap:${key}`);
     const counted = (await load(`sent:${key}`)) || [];
-    let messages = message.messages, sent = message.sent, storedSent = [], captured = counted;
+    const pageTurns = Episodes.splitTurns(message.messages).userTurns, pageIds = Episodes.turnIds(pageTurns);
+    // (pageId: the id in the chat's copy of a turn the page shows, by its id on the page; null if the copy did not keep it)
+    let messages = message.messages, sent = message.sent, storedSent = [], captured = counted, pageId = (id) => id;
     // a new copy begins (none was kept, or the page replaces it), or the stored one goes on (`above`:
     // how many older turns it has taken in above its first turn; `begun`: where a copy begun from
     // the page found the chat's settled turns): the chat finds its settled turns in the copy by
     // these (Episodes.expectedOffset)
-    let copy = Math.max(stored?.copy ?? 0, chat?.lined?.copy ?? 0) + 1, above = 0, begun;
+    // (`edited`: where in the copy the turns the page edited begin, if it edited one)
+    let copy = Math.max(stored?.copy ?? 0, chat?.lined?.copy ?? 0) + 1, above = 0, begun, edited = Infinity;
     if (stored) {
       // a page that shows only part of a long chat keeps the rest of the stored copy
       // NOTE: [design thought] a turn's id counts the earlier turns with the same text, so the ids
       // of sent turns are renumbered with their turns: the page's from its own numbering, the
       // stored ones where older turns came in above (or an edit replaced them)
-      const pageIds = Episodes.turnIds(Episodes.splitTurns(message.messages).userTurns);
       const merged = Episodes.mergeWindow(stored.messages, message.messages, { fresh: message.fresh ?? null, claimed: message.sent.length > 0,
                                                                                sentLast: message.sent.includes(pageIds.at(-1)) });
       const turnsOf = (list) => Episodes.splitTurns(list).userTurns;
-      const pageId = merged.pageShift === null ? () => null : Episodes.renumber(turnsOf(message.messages), turnsOf(merged.messages), merged.pageShift);
+      pageId = merged.pageShift === null ? () => null : Episodes.renumber(pageTurns, turnsOf(merged.messages), merged.pageShift);
       const storedId = Episodes.renumber(turnsOf(stored.messages), turnsOf(merged.messages), merged.storedShift, merged.storedKeep);
+      edited = merged.storedKeep + merged.storedShift;
       messages = merged.messages;
       sent = message.sent.map(pageId).filter(Boolean);
       storedSent = stored.sent.map(storedId).filter(Boolean);
@@ -217,14 +220,6 @@ async function onSnapshot(message, sender) {
     if (stale()) return false;
     const count = [...new Set([...captured, ...sent])];
     if (JSON.stringify(count) !== JSON.stringify(counted)) await save(`sent:${key}`, count);
-    // the messages captured as sent for the first time, by their loose form and when
-    const firstSent = sent.filter((id) => !captured.includes(id));
-    if (firstSent.length) {
-      const userTurns = Episodes.splitTurns(messages).userTurns, ids = Episodes.turnIds(userTurns);
-      const entries = firstSent.map((id) => ({ h: Episodes.looseHash(userTurns[ids.indexOf(id)] ?? ""), at: message.capturedAt }));
-      await save(`sentlog:${key}`, [...((await load(`sentlog:${key}`)) || []), ...entries].slice(-500));
-      await noteMessage(message.capturedAt);
-    }
     const same = stored && JSON.stringify(stored.messages) === JSON.stringify(messages);
     // whole: the copy holds the chat from its first settled turn on (Episodes.sync). A copy begun
     // from a part of the chat further down (its earlier copy was dropped) stays a part.
@@ -234,9 +229,33 @@ async function onSnapshot(message, sender) {
     // below for new ones
     let whole = stored?.whole ?? true;
     if (!stored) {
-      const at = Episodes.lineUp(chat?.ids || [], Episodes.turnIds(Episodes.splitTurns(messages).userTurns), false, null, message.fresh ?? null);
+      const at = Episodes.lineUp(chat?.ids || [], pageIds, false, null, message.fresh ?? null);
       whole = !(at > 0);
       begun = at === null ? undefined : -at;
+    }
+    // the messages captured as sent for the first time, by their loose form and when: the page's turns sent there
+    // that are new to it (its last `fresh` turns, any on its first look at the chat: content/capture.js takes a turn
+    // for one just sent only as it arrives), and that the chat will judge: kept in the copy, not sent in it before,
+    // and after the chat's settled turns (where Episodes.sync looks for them: Episodes.expectedOffset), or edited
+    // NOTE: [edge case callout] (0.7.1) by their places, not by the ids the popup's count holds (as up to 0.7): an id
+    // counts the earlier turns with the same text, and the count's ids were numbered in earlier copies of the chat. A
+    // chat with no advice in it keeps no copy, and Claude draws only the last few turns of a long chat: a picture just
+    // sent ("[image]"), or an "ok", took the id of one counted long before. It was never logged, and the walk judged
+    // it again as another device's (P7, Nov 20, 2026: 97 of 112 pictures, each judged on the web too).
+    // NOTE: [edge case callout] a page that draws only the turn just sent, a text the chat repeats, can line up with
+    // a settled turn (with no copy kept, Episodes.lineUp has only the texts; on a page's first look at the chat,
+    // mergeWindow cannot tell it is new): the web never judges it. It stays out of the log, so the walk judges it
+    // (as another device's), the one judgment it gets.
+    const fresh = message.fresh ?? null;
+    const expected = Episodes.expectedOffset(chat, { copy, above, begun });
+    const settledEnd = expected === null ? 0 : Math.min(expected + (chat?.ids || []).length, edited);
+    const copyIds = Episodes.turnIds(Episodes.splitTurns(messages).userTurns);
+    const firstSent = message.sent.filter((id) => pageId(id) && !storedSent.includes(pageId(id)) && copyIds.indexOf(pageId(id)) >= settledEnd &&
+                                                  (fresh === null || pageIds.indexOf(id) >= pageIds.length - fresh));
+    if (firstSent.length) {
+      const entries = firstSent.map((id) => ({ h: Episodes.looseHash(pageTurns[pageIds.indexOf(id)]), at: message.capturedAt }));
+      await save(`sentlog:${key}`, [...((await load(`sentlog:${key}`)) || []), ...entries].slice(-500));
+      await noteMessage(message.capturedAt);
     }
     await save(`snap:${key}`, {
       messages, url: message.url, site: message.site, tabId: sender.tab.id, settled: Boolean(message.settled), whole, copy, above, begun,

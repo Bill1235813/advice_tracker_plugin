@@ -12,7 +12,15 @@ the *Data notes* for the study team. How to install and use it: [README.md](READ
   computer any more), your earlier answers and feedback count for your study weeks, and past
   conversations you skipped or answered No are not offered again (those you annotated already were
   not). Nothing else changes for an install that was never lost.
+- **A picture sent alone is judged once.** On Claude, a message that is only a picture (or a
+  repeated "ok") in a long chat was judged a second time, as if typed on another device.
 - Data notes:
+  - The log of messages sent on the web (`sentlog`, which tells the walk through a site's conversations
+    which turns the web judged) records a message by its place on the page, not by its id. Up to 0.7 a
+    picture alone (`[image]`) or an "ok", in a chat with no advice on a page that draws only the last turns
+    (Claude), took the id of one counted earlier and was never recorded, so the walk judged it again with
+    `source: "app"` (Nov 20, one participant: 97 of 112 pictures judged twice). Such `app` judgments of
+    turns that also have a `web` judgment are duplicates: drop them in analysis.
   - New request `GET /restore?participant_id=` (relay 0.6.8), once per install, after `GET /joined`
     answered: the study conversations answered on earlier installs with their follow-up steps, the
     times of feedback and week reports, the past conversations decided. Ids, sites and times only, no
