@@ -28,6 +28,9 @@
   let wasGenerating = false, lastGenerating = 0;   // a reply being written at the last snapshot; when one was last seen
   let trackingOff = true;           // paused, this site excluded, or no participant ID yet (the settings say)
   let lastView = { key: null, at: 0 };
+  let clicks = [];                  // what the participant clicked lately that did not send by itself: {texts, at} (noteClick)
+  const CLICK_LEVELS = 4;           // the clicked element and its parents up to this many levels: one of them holds the text
+  const MAX_CLICK_TEXT = 1000;      // ... of a question the site suggests, not of a whole part of the page
 
   // What a message's text leaves out: the site's noise (thinking blocks, screen-reader labels,
   // buttons, ...) and attachments (they become tags)
@@ -295,6 +298,8 @@
       firstSight = true;
       placed = Episodes.placeTurns([], shown);
     }
+    // (0.7.2) a question clicked on the page, the site's suggestion: a send once it comes in (creditClick)
+    if (creditClick(shown, placed, now)) placed = Episodes.placeTurns(conversation.known, shown, sends.length);
     // the places of the turns sent here move with older turns loaded above; an edit replaces turns
     if (placed.above) conversation.sent = new Set([...conversation.sent].map((at) => at + placed.above));
     if (placed.editedFrom !== null) conversation.sent = new Set([...conversation.sent].filter((at) => at < placed.editedFrom));
@@ -385,12 +390,53 @@
   }
   document.addEventListener("click", (event) => {
     const link = event.target.closest?.("a[href]");
-    if (link && opensOtherChat(link, event)) sends = [];
+    const leaves = Boolean(link && opensOtherChat(link, event));
+    if (leaves) { sends = []; clicks = []; }
     const button = event.target.closest?.("button");
-    if (!button || button.matches(config.generating) || button.closest(config.generating)) return;    // Stop is not a send
-    const label = ["aria-label", "data-testid", "id", "title", "type"].map((name) => button.getAttribute(name) || "").join(" ");
-    if (/send|submit/i.test(label) || (config.sends && button.matches(config.sends))) recordSend(Boolean(button.closest(config.turns)));
+    if (button && (button.matches(config.generating) || button.closest(config.generating))) return;    // Stop is not a send
+    const label = button ? ["aria-label", "data-testid", "id", "title", "type"].map((name) => button.getAttribute(name) || "").join(" ") : "";
+    if (button && (/send|submit/i.test(label) || (config.sends && button.matches(config.sends)))) recordSend(Boolean(button.closest(config.turns)));
+    else if (!leaves) noteClick(event.target);
   }, true);
+
+  // (0.7.2) A question the site suggests is sent with a click on it, and what it is drawn with changes with the site's
+  // layout: a button with no "send" in its label, or no button at all. The selectors of lib/sites.js (`sends`) follow
+  // one layout (Perplexity's related questions of October 2026 stopped matching by November: the message then counted
+  // as another device's, and no update pop-up came). So any click that did not send by itself is noted, with the text
+  // of the clicked element and of its parents, and it counts as a send if that text comes in as the participant's
+  // newest turn within the send window (creditClick): on any site, in any layout.
+  // NOTE: [edge case callout] not a click in a text box or in one of the participant's own turns (selecting the text of
+  // a message is no send); only texts with a letter or a digit, of up to MAX_CLICK_TEXT characters
+  function noteClick(target) {
+    if (trackingOff || !target || typeof target.closest !== "function" || isEditable(target) || target.closest(EDITING)) return;
+    const turn = target.closest(config.turns);
+    if (turn && config.role(turn) === "user") return;
+    const texts = [];
+    for (let element = target, level = 0; element && element !== document.body && level < CLICK_LEVELS; element = element.parentElement, level++) {
+      const text = String(element.innerText ?? element.textContent ?? "").trim();
+      if (text.length > MAX_CLICK_TEXT) break;
+      if (/[\p{L}\p{N}]/u.test(text)) texts.push(Episodes.looseHash(text));
+    }
+    if (texts.length) clicks = [...clicks, { texts, at: Date.now() }].slice(-5);
+  }
+
+  // A turn new to this page that no send gesture claims, the newest the page shows, with the text of something clicked
+  // within the send window: that click sent it. Returns whether it counted as a send (the turns are then placed again).
+  // NOTE: [design thought] the newest turn only, and only when no gesture waits for it: a question the participant
+  // clicked into the text box and then sent with Enter is claimed by the Enter, once
+  function creditClick(shown, placed, now) {
+    clicks = clicks.filter((click) => now - Math.max(click.at, lastGenerating) < SEND_WINDOW_MS);
+    if (!clicks.length || !shown.length || placed.fresh <= sends.length) return false;
+    const newest = Episodes.looseHash(shown[shown.length - 1].text);
+    const click = clicks.find((each) => each.texts.includes(newest));
+    if (!click) return false;
+    clicks = clicks.filter((each) => each !== click);
+    sends.push({ at: click.at, edit: false });
+    // (a send counts as activity: the pause before an update pop-up counts from it, as after Enter: recordSend)
+    lastActivity = now;
+    notify("activity");
+    return true;
+  }
 
   // leaving the tab: capture the last state now rather than after the debounce; coming back to
   // it: the page shows this conversation again

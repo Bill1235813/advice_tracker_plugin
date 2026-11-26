@@ -3,6 +3,21 @@
 What changed in each version of the Advice Tracker extension, newest first: for participants, and in
 the *Data notes* for the study team. How to install and use it: [README.md](README.md).
 
+## 0.7.2
+
+- **A question you click is asked about like one you type.** Clicking one of the questions a site
+  suggests (Perplexity's related questions under an answer, a suggested question on a new chat
+  page) now counts as your message: if it continues an advice conversation, the update pop-up comes
+  after the pause as usual. Before, it counted as typed on another device, and no pop-up came.
+- Data notes:
+  - content/capture.js: a click that does not send by itself (no send/submit button, not the site's
+    `sends` selector) is noted with the text of the clicked element and its parents (4 levels, up to
+    1000 characters each); when that text comes in as the newest turn new to the page within the send
+    window (30 s, longer while a reply is written), the click counts as its send gesture, and as
+    activity. Not in a text box or the participant's own turns; a link to another chat forgets it.
+  - Up to 0.7.1, turns sent by such a click were `source: "app"` judgments (read later from the
+    site), the episode's update came through the other-device invitation, and the web asked nothing.
+
 ## 0.7.1
 
 - **Added again, the extension picks up where it left off.** If Chrome dropped Advice Tracker (its
